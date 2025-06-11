@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hello World</title>
+  <style>
+    /* 기본 마진, 패딩 제거 및 전체 높이 설정 */
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+    }
+
+    /* 전체 레이아웃을 컬럼 방향의 flex 컨테이너로 구성 */
+    body {
+      display: flex;
+      flex-direction: column;
+      height: 100dvh; /* 🔹 모바일에서 높이 문제 해결 (동적 높이) */
+    }
+
+    /* 편집모드 스타일 */
+    body.edit-mode {
+      cursor: crosshair !important;
+    }
+
+    body.edit-mode * {
+      cursor: crosshair !important;
+    }
+
+    /* 편집모드 표시기 */
+    .edit-mode-indicator {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: #ff4444;
+      color: white;
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      font-weight: bold;
+      z-index: 1000;
+      display: none;
+    }
+
+    body.edit-mode .edit-mode-indicator {
+      display: block;
+    }
+
+    /* 탑 영역 */
+    #top {
+      height: 35px;
+      border: 1px solid black;
+      padding: 10px;
+      font-size: 20px;
+      color: gray;
+      font-weight: bold;
+    }
+
+    /* 중앙 영역 */
+    #middle {
+      flex: 1;
+      display: flex;
+      overflow: hidden; /* 넘치는 요소 방지 */
+    }
+
+    /* 왼쪽 영역 */
+    #left {
+      width: 10px;
+      background: #bbb;
+      border: 1px solid black;
+    }
+
+    /* 오른쪽 영역 */
+    #right {
+      flex: 1;
+      border: 1px solid black;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    /* 초기 메시지 영역 */
+    #right .int-content {
+      height: 30px;
+      overflow: hidden;
+      padding: 10px;
+      font-size: 16px;
+      color: #333;
+      background-color: #f9f9f9;
+      border-bottom: 1px solid #ccc;
+    }
+
+    /* 채팅 내용이 표시될 영역 */
+    #right .content {
+      flex-grow: 1; /* 남은 공간 모두 차지 */
+      overflow-y: auto;
+      padding: 10px;
+      font-size: 16px;
+      color: #333;
+    }
+
+    /* 입력창 영역 */
+    #right .input-container {
+      height: 70px;
+      display: flex;
+      align-items: center;
+      border-top: 1px solid #ccc;
+      padding: 5px;
+      background: white;
+      flex-shrink: 0; /* 크기가 줄어들지 않도록 설정 */
+    }
+
+    /* 입력창 스타일 */
+    #right .input-container textarea {
+      flex: 1;
+      resize: none;
+      padding: 5px;
+      font-size: 14px;
+    }
+
+    /* 버튼 스타일 */
+    #right .input-container button {
+      margin-left: 5px;
+      padding: 5px 10px;
+      font-size: 14px;
+      cursor: pointer;
+      align-self: stretch;
+    }
+
+    /* 바텀 영역 */
+    #bottom {
+      height: 30px;
+      padding-left: 10px;
+      border: 1px solid black;
+    }
+
+    .question {
+      margin-top: 10px;
+      color: #333;
+      font-weight: bold;
+      background-color: #f2f2f2;
+      padding: 10px;
+      border-radius: 1em;
+      display: inline-block;
+      max-width: 80%;
+      word-wrap: break-word;
+    }
+    
+    .answer {
+      margin-top: 10px;
+      margin-left: 20px;
+      color: black;
+      white-space: pre-wrap;
+      margin-bottom: 25px;
+    }
+
+    /* 모달 스타일 */
+    .modal {
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .modal-content {
+      background-color: white;
+      padding: 20px;
+      border-radius: 10px;
+      width: 90%;
+      max-width: 500px;
+      max-height: 80%;
+      overflow-y: auto;
+      position: relative;
+    }
+
+    .close {
+      position: absolute;
+      right: 15px;
+      top: 10px;
+      font-size: 28px;
+      font-weight: bold;
+      cursor: pointer;
+      color: #aaa;
+    }
+
+    .close:hover {
+      color: black;
+    }
+
+    .form-group {
+      margin-bottom: 15px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    .file-info {
+      font-size: 12px;
+      color: #666;
+      margin-top: 5px;
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 20px;
+      background-color: #f0f0f0;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background-color: #4CAF50;
+      transition: width 0.3s ease;
+      width: 0%;
+    }
+
+    .progress-text {
+      text-align: center;
+      font-size: 14px;
+      color: #666;
+    }
+
+    /* 업로드 버튼 스타일 */
+    #upload-button, #text-upload-button {
+      margin-left: 5px;
+      padding: 5px 10px;
+      font-size: 16px;
+      cursor: pointer;
+      border: 1px solid #ccc;
+      background: #f9f9f9;
+      border-radius: 4px;
+    }
+
+    #upload-button:hover, #text-upload-button:hover {
+      background: #e9e9e9;
+    }
+
+    /* 성공/에러 메시지 스타일 */
+    .success-message {
+      background-color: #d4edda;
+      color: #155724;
+      padding: 10px;
+      border-radius: 5px;
+      margin: 10px 0;
+      border: 1px solid #c3e6cb;
+    }
+
+    .error-message {
+      background-color: #f8d7da;
+      color: #721c24;
+      padding: 10px;
+      border-radius: 5px;
+      margin: 10px 0;
+      border: 1px solid #f5c6cb;
+    }
+  </style>
+</head>
+<body>
+  <!-- 편집모드 표시기 -->
+  <div class="edit-mode-indicator">편집 모드 (R키로 해제)</div>
+  
+  <div id="top">ILJoo Deep Hub</div>
+  <div id="middle">
+    <div id="left"></div>
+    <div id="right">
+      <div class="int-content">
+        {{ message }}
+      </div>
+      <div class="content" id="content-area"></div>
+      <div class="input-container">
+        <textarea id="input-text" rows="3" placeholder="텍스트 입력..."></textarea>
+        <button id="go-button">Go</button>
+        <button id="upload-button">📁</button>
+        <button id="text-upload-button">📝</button>
+      </div>
+      
+      <!-- 파일 업로드 모달 -->
+      <div id="upload-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+          <span class="close">&times;</span>
+          <h3>📁 문서 업로드 및 인덱싱</h3>
+          <form id="upload-form" enctype="multipart/form-data">
+            <div class="form-group">
+              <label>파일 선택:</label>
+              <input type="file" id="file-input" accept=".pdf,.txt,.docx,.md" required>
+              <div class="file-info">지원 형식: PDF, TXT, DOCX, MD</div>
+            </div>
+            <div class="form-group">
+              <label>문서 제목 (선택사항):</label>
+              <input type="text" id="doc-title" placeholder="문서 제목을 입력하세요">
+            </div>
+            <button type="submit">업로드 및 인덱싱</button>
+          </form>
+          <div id="upload-progress" style="display: none;">
+            <div class="progress-bar">
+              <div class="progress-fill"></div>
+            </div>
+            <div class="progress-text">업로드 중...</div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 텍스트 입력 모달 -->
+      <div id="text-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+          <span class="close">&times;</span>
+          <h3>📝 텍스트 직접 인덱싱</h3>
+          <form id="text-form">
+            <div class="form-group">
+              <label>제목:</label>
+              <input type="text" id="text-title" placeholder="텍스트 제목" required>
+            </div>
+            <div class="form-group">
+              <label>카테고리:</label>
+              <select id="text-category">
+                <option value="general">일반</option>
+                <option value="faq">FAQ</option>
+                <option value="manual">매뉴얼</option>
+                <option value="policy">정책</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>내용:</label>
+              <textarea id="text-content" rows="10" placeholder="인덱싱할 텍스트를 입력하세요" required></textarea>
+            </div>
+            <button type="submit">인덱싱</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="bottom">ILJOO GnS (llama-3.2)</div>
+
+  <script>
+    // 편집모드 상태 관리
+    let isEditMode = false;
+
+    function toggleEditMode() {
+      isEditMode = !isEditMode;
+      if (isEditMode) {
+        document.body.classList.add('edit-mode');
+        console.log('편집모드 활성화');
+      } else {
+        document.body.classList.remove('edit-mode');
+        console.log('편집모드 비활성화');
+      }
+    }
+
+    function adjustHeight() {
+      const vh = window.innerHeight * 0.01;
+      document.documentElement.style.setProperty('--vh', `${vh}px`);
+    }
+
+    // 페이지 로드 시 높이 조정
+    window.addEventListener('load', adjustHeight);
+    // 화면 크기 변경 시 높이 조정
+    window.addEventListener('resize', adjustHeight);
+
+    // 전역 키보드 이벤트 리스너 (편집모드 제어)
+    document.addEventListener('keydown', function(e) {
+      // R 키로 편집모드 토글 (대소문자 구분 없음)
+      if (e.key === 'r' || e.key === 'R') {
+        // 입력창에서 텍스트를 입력 중인 경우는 제외
+        if (document.activeElement.tagName !== 'TEXTAREA' && document.activeElement.tagName !== 'INPUT') {
+          e.preventDefault();
+          toggleEditMode();
+        }
+      }
+      
+      // 편집모드일 때 R 키 외의 모든 키 입력 차단
+      if (isEditMode) {
+        if (e.key !== 'r' && e.key !== 'R') {
+          e.preventDefault();
+          e.stopPropagation();
+          return false;
+        }
+      }
+    });
+
+    // 모든 클릭, 마우스, 키보드 이벤트에서 편집모드 체크
+    document.addEventListener('click', function(e) {
+      if (isEditMode) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+    });
+
+    document.addEventListener('mousedown', function(e) {
+      if (isEditMode) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+    });
+
+    document.addEventListener('keyup', function(e) {
+      if (isEditMode && e.key !== 'r' && e.key !== 'R') {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+    });
+
+    // 폼 제출 방지
+    document.addEventListener('submit', function(e) {
+      if (isEditMode) {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }
+    });
+
+    document.getElementById('go-button').addEventListener('click', function() {
+      if (isEditMode) return; // 편집모드에서는 동작하지 않음
+      
+      const inputTextElement = document.getElementById('input-text');
+      const inputText = inputTextElement.value.trim();
+      if (!inputText) return;
+
+      const contentDiv = document.querySelector('.content');
+
+      // 질문 추가
+      const qaEntry = document.createElement('div');
+      qaEntry.innerHTML = `<div class="question">${inputText}</div>`;
+      contentDiv.appendChild(qaEntry);
+
+      // 입력창 초기화
+      inputTextElement.value = '';
+
+      fetch('/ask', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ question: inputText })
+      })
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('네트워크 응답이 정상이 아닙니다.');
+        }
+        return response.json();
+      })
+      .then(data => {
+        // 답변 추가
+        const answerDiv = document.createElement('div');
+        answerDiv.className = "answer";
+        answerDiv.innerHTML = "";
+        
+        // 품질 점수 표시 (상단에)
+        const qualityScoreDiv = document.createElement('div');
+        qualityScoreDiv.style.cssText = `
+          background-color: ${data.quality_score >= 8 ? '#d4edda' : data.quality_score >= 6 ? '#fff3cd' : '#f8d7da'};
+          color: ${data.quality_score >= 8 ? '#155724' : data.quality_score >= 6 ? '#856404' : '#721c24'};
+          padding: 5px 10px;
+          border-radius: 5px;
+          font-size: 12px;
+          margin-bottom: 10px;
+          border: 1px solid ${data.quality_score >= 8 ? '#c3e6cb' : data.quality_score >= 6 ? '#ffeaa7' : '#f5c6cb'};
+        `;
+        qualityScoreDiv.innerHTML = `
+          ⭐ GPT-4.1 품질평가: <strong>${data.quality_score.toFixed(1)}/10</strong> | 
+          🎯 신뢰도: <strong>${data.confidence.toFixed(2)}</strong> | 
+          📚 출처: <strong>${data.sources.length}</strong>개 문서
+        `;
+        answerDiv.appendChild(qualityScoreDiv);
+        
+        const answerSpan = document.createElement('span');
+        answerSpan.className = "answer-text";
+        answerDiv.appendChild(answerSpan);
+        qaEntry.appendChild(answerDiv);
+
+        // 타이핑 효과 적용
+        const answerText = data.answer;
+        let i = 0;
+        const typingInterval = setInterval(() => {
+          if (i < answerText.length) {
+            answerSpan.innerHTML += answerText.charAt(i);
+            i++;
+          } else {
+            clearInterval(typingInterval);
+          }
+        }, 50);
+
+        // 새 메시지 추가 시 자동 스크롤
+        contentDiv.scrollTop = contentDiv.scrollHeight;
+      })
+      .catch(error => {
+        console.error('에러 발생:', error);
+      });
+    });
+
+    // Enter 키 이벤트 추가 (Go 버튼 클릭과 동일한 동작)
+    document.getElementById('input-text').addEventListener('keydown', function(e) {
+      if (isEditMode) return; // 편집모드에서는 동작하지 않음
+      
+      if (e.key === 'Enter' && !e.shiftKey) { 
+        e.preventDefault();
+        document.getElementById('go-button').click();
+      }
+    });
+
+    // === 문서 업로드 기능 ===
+    
+    // 모달 관리
+    const uploadModal = document.getElementById('upload-modal');
+    const textModal = document.getElementById('text-modal');
+    const uploadButton = document.getElementById('upload-button');
+    const textUploadButton = document.getElementById('text-upload-button');
+    const closeBtns = document.querySelectorAll('.close');
+
+    // 파일 업로드 모달 열기
+    uploadButton.addEventListener('click', function() {
+      if (isEditMode) return;
+      uploadModal.style.display = 'flex';
+    });
+
+    // 텍스트 입력 모달 열기
+    textUploadButton.addEventListener('click', function() {
+      if (isEditMode) return;
+      textModal.style.display = 'flex';
+    });
+
+    // 모달 닫기
+    closeBtns.forEach(btn => {
+      btn.addEventListener('click', function() {
+        uploadModal.style.display = 'none';
+        textModal.style.display = 'none';
+      });
+    });
+
+    // 모달 외부 클릭 시 닫기
+    window.addEventListener('click', function(e) {
+      if (e.target === uploadModal) {
+        uploadModal.style.display = 'none';
+      }
+      if (e.target === textModal) {
+        textModal.style.display = 'none';
+      }
+    });
+
+    // 파일 업로드 처리
+    document.getElementById('upload-form').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      
+      const fileInput = document.getElementById('file-input');
+      const docTitle = document.getElementById('doc-title').value;
+      const progressDiv = document.getElementById('upload-progress');
+      const progressFill = document.querySelector('.progress-fill');
+      const progressText = document.querySelector('.progress-text');
+      
+      if (!fileInput.files[0]) {
+        alert('파일을 선택해주세요.');
+        return;
+      }
+      
+      // 진행 상황 표시
+      progressDiv.style.display = 'block';
+      progressFill.style.width = '20%';
+      progressText.textContent = '파일 업로드 중...';
+      
+      const formData = new FormData();
+      formData.append('file', fileInput.files[0]);
+      if (docTitle) {
+        formData.append('doc_title', docTitle);
+      }
+      
+      try {
+        progressFill.style.width = '50%';
+        progressText.textContent = '서버로 전송 중...';
+        
+        const response = await fetch('/admin/upload-document', {
+          method: 'POST',
+          body: formData
+        });
+        
+        progressFill.style.width = '80%';
+        progressText.textContent = '인덱싱 중...';
+        
+        const result = await response.json();
+        
+        progressFill.style.width = '100%';
+        
+        if (result.success) {
+          progressText.textContent = '완료!';
+          
+          // 성공 메시지를 채팅 영역에 표시
+          const contentDiv = document.querySelector('.content');
+          const messageDiv = document.createElement('div');
+          messageDiv.className = 'success-message';
+          messageDiv.innerHTML = `✅ ${result.message}`;
+          contentDiv.appendChild(messageDiv);
+          contentDiv.scrollTop = contentDiv.scrollHeight;
+          
+          // 폼 초기화
+          fileInput.value = '';
+          document.getElementById('doc-title').value = '';
+          
+          setTimeout(() => {
+            uploadModal.style.display = 'none';
+            progressDiv.style.display = 'none';
+            progressFill.style.width = '0%';
+          }, 2000);
+          
+        } else {
+          throw new Error(result.message);
+        }
+        
+      } catch (error) {
+        progressDiv.style.display = 'none';
+        
+        // 에러 메시지를 채팅 영역에 표시
+        const contentDiv = document.querySelector('.content');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'error-message';
+        messageDiv.innerHTML = `❌ 업로드 실패: ${error.message}`;
+        contentDiv.appendChild(messageDiv);
+        contentDiv.scrollTop = contentDiv.scrollHeight;
+      }
+    });
+
+    // 텍스트 인덱싱 처리
+    document.getElementById('text-form').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      
+      const title = document.getElementById('text-title').value;
+      const category = document.getElementById('text-category').value;
+      const content = document.getElementById('text-content').value;
+      
+      if (!title.trim() || !content.trim()) {
+        alert('제목과 내용을 모두 입력해주세요.');
+        return;
+      }
+      
+      const formData = new FormData();
+      formData.append('text', content);
+      formData.append('title', title);
+      formData.append('category', category);
+      
+      try {
+        const response = await fetch('/admin/quick-text', {
+          method: 'POST',
+          body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+          // 성공 메시지를 채팅 영역에 표시
+          const contentDiv = document.querySelector('.content');
+          const messageDiv = document.createElement('div');
+          messageDiv.className = 'success-message';
+          messageDiv.innerHTML = `✅ ${result.message} (길이: ${result.text_length}자)`;
+          contentDiv.appendChild(messageDiv);
+          contentDiv.scrollTop = contentDiv.scrollHeight;
+          
+          // 폼 초기화
+          document.getElementById('text-title').value = '';
+          document.getElementById('text-content').value = '';
+          document.getElementById('text-category').value = 'general';
+          
+          textModal.style.display = 'none';
+          
+        } else {
+          throw new Error(result.message);
+        }
+        
+      } catch (error) {
+        // 에러 메시지를 채팅 영역에 표시
+        const contentDiv = document.querySelector('.content');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'error-message';
+        messageDiv.innerHTML = `❌ 인덱싱 실패: ${error.message}`;
+        contentDiv.appendChild(messageDiv);
+                 contentDiv.scrollTop = contentDiv.scrollHeight;
+       }
+     });
+
+    // === 드래그 앤 드롭 기능 ===
+    const contentArea = document.getElementById('content-area');
+    
+    // 드래그 오버 스타일
+    contentArea.addEventListener('dragover', function(e) {
+      e.preventDefault();
+      if (isEditMode) return;
+      contentArea.style.backgroundColor = '#f0f8ff';
+      contentArea.style.border = '2px dashed #4CAF50';
+    });
+    
+    contentArea.addEventListener('dragleave', function(e) {
+      e.preventDefault();
+      contentArea.style.backgroundColor = '';
+      contentArea.style.border = '';
+    });
+    
+    // 파일 드롭 처리
+    contentArea.addEventListener('drop', async function(e) {
+      e.preventDefault();
+      if (isEditMode) return;
+      
+      contentArea.style.backgroundColor = '';
+      contentArea.style.border = '';
+      
+      const files = Array.from(e.dataTransfer.files);
+      const supportedExtensions = ['.pdf', '.txt', '.docx', '.md'];
+      
+      for (const file of files) {
+        const extension = '.' + file.name.split('.').pop().toLowerCase();
+        
+        if (!supportedExtensions.includes(extension)) {
+          const messageDiv = document.createElement('div');
+          messageDiv.className = 'error-message';
+          messageDiv.innerHTML = `❌ 지원하지 않는 파일 형식: ${file.name}`;
+          contentArea.appendChild(messageDiv);
+          continue;
+        }
+        
+        // 업로드 진행 메시지 표시
+        const progressDiv = document.createElement('div');
+        progressDiv.className = 'success-message';
+        progressDiv.innerHTML = `📁 업로드 중: ${file.name}...`;
+        contentArea.appendChild(progressDiv);
+        contentArea.scrollTop = contentArea.scrollHeight;
+        
+        try {
+          const formData = new FormData();
+          formData.append('file', file);
+          
+          const response = await fetch('/admin/upload-document', {
+            method: 'POST',
+            body: formData
+          });
+          
+          const result = await response.json();
+          
+          // 진행 메시지 제거
+          progressDiv.remove();
+          
+          if (result.success) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'success-message';
+            messageDiv.innerHTML = `✅ ${result.message}`;
+            contentArea.appendChild(messageDiv);
+          } else {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'error-message';
+            messageDiv.innerHTML = `❌ ${file.name} 업로드 실패: ${result.message}`;
+            contentArea.appendChild(messageDiv);
+          }
+          
+        } catch (error) {
+          progressDiv.remove();
+          const messageDiv = document.createElement('div');
+          messageDiv.className = 'error-message';
+          messageDiv.innerHTML = `❌ ${file.name} 업로드 오류: ${error.message}`;
+          contentArea.appendChild(messageDiv);
+        }
+        
+        contentArea.scrollTop = contentArea.scrollHeight;
+      }
+    });
+  </script>
+</body>
+</html>
