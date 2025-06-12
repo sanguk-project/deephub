@@ -47,6 +47,7 @@ RAG는 검색 기반 생성 모델로, 기존 문서에서 관련 정보를 검�
 6. **마크다운 답변**: 타이핑 효과와 함께 렌더링된 최종 답변 제공
 
 ## 🏗️ **시스템 아키텍처**
+![사내 AI Agent 설계도](https://github.com/user-attachments/assets/5454806f-d8ef-4e82-8cb8-c436f5dfa89d)
 
 ### 📁 **프로젝트 구조 (v2.1)**
 
@@ -261,7 +262,12 @@ class InMemoryDocumentStore:
 | 벡터 검색 | Flat Cosine | IVF Algorithm | **30-50% 빠름** |
 | 메모리 사용량 | 기본 | IVF 최적화 | **20-30% 절약** |
 | 문서 처리 | LangChain | LlamaIndex 통합 | **단일화** |
+<<<<<<< HEAD
 | LLM 파이프라인 | 구버전 | 최신 LangChain | **Deprecation 해결** |
+=======
+| 라이브러리 수 | 다중 의존성 | 정리된 구조 | **유지보수성 향상** |
+| 답변 품질 | GPT-4.1 단일 | EXAONE + GPT-4.1 | **다층 검증** |
+>>>>>>> 72cf8176d80cdc2c3ce1360907eaf3a762c30674
 
 ### v2.1 신규 기능
 
@@ -455,4 +461,8 @@ MIT License - 자유롭게 사용, 수정, 배포 가능합니다.
 
 ---
 
+<<<<<<< HEAD
 **🎯 ILJoo Deep Hub v2.1 - 로컬 모델 + 휘발성 저장소 + 마크다운 렌더링으로 더욱 안전하고 빠른 AI 질의응답을 경험하세요!** 
+=======
+**🎯 ILJoo Deep Hub v2.0 - 차세대 RAG 시스템으로 더 정확하고 빠른 AI 질의응답을 경험하세요!** 
+>>>>>>> 72cf8176d80cdc2c3ce1360907eaf3a762c30674
