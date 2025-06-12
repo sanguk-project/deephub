@@ -11,6 +11,25 @@ optimize_startup()
 from shared.utils import setup_environment
 from shared.config.settings import settings
 
+async def check_vector_config_and_reindex():
+    """VectorDB 설정 변경 확인 및 자동 재적재"""
+    try:
+        from service.storage.vector_config_manager import auto_check_and_update
+        
+        print("🔍 VectorDB 적재 조건 변경 확인...")
+        
+        # 설정 변경 확인 및 자동 업데이트
+        updated = await auto_check_and_update()
+        
+        if updated:
+            print("🔄 VectorDB 적재 조건 변경으로 인한 자동 재적재 완료!")
+        else:
+            print("✅ VectorDB 적재 조건 변경 없음")
+            
+    except Exception as e:
+        print(f"⚠️  VectorDB 설정 확인 중 오류: {e}")
+        print("📝 수동으로 재적재가 필요할 수 있습니다.")
+
 async def auto_index_documents():
     """백그라운드에서 documents 폴더의 새로운 파일들을 자동 인덱싱"""
     try:
@@ -19,18 +38,18 @@ async def auto_index_documents():
         print("📁 문서 자동 인덱싱 시작...")
         result = await auto_index_documents()
         
-        if result.get("indexed_count", 0) > 0:
-            print(f"✅ 새 문서 {result['indexed_count']}개 인덱싱 완료")
+        if result.get("indexed_files", 0) > 0:
+            print(f"✅ 새 문서 {result['indexed_files']}개 인덱싱 완료")
         
-        if result.get("failed_count", 0) > 0:
-            print(f"⚠️  오류 발생: {result['failed_count']}개 파일")
+        if result.get("failed_files", 0) > 0:
+            print(f"⚠️  오류 발생: {result['failed_files']}개 파일")
         
         if result.get("total_files", 0) == 0:
             print("📂 documents 폴더가 비어있거나 지원되는 파일이 없습니다")
             print(f"📍 경로: {settings.path.documents_dir}")
             print("💡 지원 형식: .pdf, .txt, .docx, .md, .html, .rtf")
         else:
-            print(f"📊 전체 파일: {result['total_files']}개, 인덱싱: {result['indexed_count']}개")
+            print(f"📊 전체 파일: {result['total_files']}개, 인덱싱: {result['indexed_files']}개")
         
     except Exception as e:
         print(f"⚠️  자동 인덱싱 중 오류: {e}")
@@ -62,8 +81,11 @@ def main():
     print("✅ 기본 설정 검증 완료")
     print("⚡ 빠른 시작 모드: 모델들은 첫 요청 시에 로딩됩니다")
     
-    # 자동 문서 인덱싱 (동기 처리)
+    # VectorDB 설정 변경 확인 및 자동 재적재
     import asyncio
+    asyncio.run(check_vector_config_and_reindex())
+    
+    # 자동 문서 인덱싱 (동기 처리)
     asyncio.run(auto_index_documents())
     
     print("🎯 서버 시작 중...")

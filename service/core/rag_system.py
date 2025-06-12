@@ -1,7 +1,7 @@
 """
 RAG 시스템 통합 컴포넌트
 검색 증강 생성(Retrieval-Augmented Generation) 기능을 제공
-GPT-4.1 기반 품질 평가 및 MongoDB 로깅 포함
+EXAONE-3.5-2.4B-Instruct 기반 품질 평가 및 MongoDB 로깅 포함
 """
 
 import logging
@@ -10,9 +10,16 @@ from typing import List, Dict, Any
 from dataclasses import dataclass
 
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from langchain_huggingface import HuggingFacePipeline
+from langchain.prompts import PromptTemplate
+from langchain_core.runnables import RunnablePassthrough
+from langchain_core.output_parsers import StrOutputParser
+from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
+import torch
 from service.storage.vector_store import search_similar_documents
 from admin.tools.document_indexer import get_document_indexer
 from service.storage.rag_logger import evaluate_and_log_rag, quick_rag_score, RAGEvaluationResult
+from shared.config.settings import settings
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -20,10 +27,13 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RAGConfig:
     """RAG 시스템 설정"""
-    embedding_model: str = "BAAI/bge-m3"
+    embedding_model: str = settings.model.embedding_model  # settings에서 임베딩 모델 가져오기
+    llm_model: str = settings.model.exaone_model_path  # settings에서 EXAONE 모델 경로 가져오기
     max_retrieved_docs: int = 5
     similarity_threshold: float = 0.3
     max_context_length: int = 4000
+    max_new_tokens: int = 1000  # LLM 생성 토큰 수
+    temperature: float = 0.1  # 생성 온도
 
 class RAGResponse(BaseModel):
     """RAG 응답 모델"""
@@ -40,12 +50,169 @@ class RAGSystem:
     def __init__(self, config: RAGConfig = None):
         self.config = config or RAGConfig()
         
-        # 임베딩 모델 초기화
+        # 임베딩 모델 초기화 (settings에서 모델명 가져오기)
         self.embed_model = HuggingFaceEmbedding(
-            model_name=self.config.embedding_model
+            model_name=settings.model.embedding_model
         )
         
-        logger.info("RAG 시스템 초기화 완료")
+        # EXAONE 모델과 langchain 파이프라인 초기화
+        self._initialize_llm_pipeline()
+        
+        logger.info(f"RAG 시스템 초기화 완료 - 임베딩: {settings.model.embedding_model}, LLM: {settings.model.exaone_model_path}")
+    
+    def _initialize_llm_pipeline(self):
+        """EXAONE 모델과 langchain 파이프라인 초기화"""
+        try:
+            local_model_path = settings.model.exaone_model_path
+            hf_model_name = settings.model.exaone_model_name
+            
+            logger.info(f"EXAONE 모델 초기화 시작 - 로컬경로: {local_model_path}")
+            
+            # 1. 로컬 모델 존재 확인
+            if self._check_model_exists(local_model_path):
+                logger.info("로컬 모델 발견. 로컬에서 로딩...")
+                model_source = local_model_path
+            else:
+                logger.info("로컬 모델 없음. HuggingFace에서 다운로드 후 저장...")
+                
+                # 모델 다운로드 및 저장
+                if self._download_and_save_model(local_model_path, hf_model_name):
+                    logger.info("모델 다운로드 완료. 로컬에서 로딩...")
+                    model_source = local_model_path
+                else:
+                    logger.warning("모델 다운로드 실패. HuggingFace에서 직접 로딩...")
+                    model_source = hf_model_name
+            
+            logger.info(f"모델 소스: {model_source}")
+            
+            # 2. 토크나이저 로딩
+            logger.info("EXAONE 토크나이저 로딩 중...")
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(
+                    model_source,
+                    trust_remote_code=True,
+                    use_fast=True  # Fast tokenizer 사용
+                )
+                logger.info(f"토크나이저 로딩 완료: {type(tokenizer).__name__}")
+            except Exception as e:
+                logger.warning(f"Fast tokenizer 로딩 실패, slow tokenizer 시도: {e}")
+                tokenizer = AutoTokenizer.from_pretrained(
+                    model_source,
+                    trust_remote_code=True,
+                    use_fast=False  # Slow tokenizer 폴백
+                )
+                logger.info(f"Slow tokenizer 로딩 완료: {type(tokenizer).__name__}")
+            
+            # 토크나이저 설정
+            if tokenizer.pad_token is None:
+                if tokenizer.eos_token is not None:
+                    tokenizer.pad_token = tokenizer.eos_token
+                    logger.info(f"pad_token을 eos_token으로 설정: {tokenizer.eos_token}")
+                else:
+                    # 폴백: 임의의 토큰 설정
+                    tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+                    logger.info("pad_token을 [PAD]로 설정")
+            
+            logger.info(f"토크나이저 설정 완료 - pad_token: {tokenizer.pad_token}, eos_token: {tokenizer.eos_token}")
+            
+            # 3. 모델 로딩
+            logger.info("EXAONE 모델 로딩 중...")
+            model = AutoModelForCausalLM.from_pretrained(
+                model_source,
+                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                device_map="auto" if torch.cuda.is_available() else None,
+                trust_remote_code=True,
+                low_cpu_mem_usage=True,  # 메모리 효율적 로딩
+                load_in_8bit=False,  # 필요시 True로 변경 (양자화)
+                load_in_4bit=False   # 필요시 True로 변경 (더 강한 양자화)
+            )
+            
+            # HuggingFace 파이프라인 생성
+            logger.info("HuggingFace 파이프라인 생성 중...")
+            
+            # 토크나이저 ID 검증
+            pad_token_id = getattr(tokenizer, 'pad_token_id', None)
+            eos_token_id = getattr(tokenizer, 'eos_token_id', None)
+            
+            if pad_token_id is None:
+                logger.warning("pad_token_id가 None입니다. eos_token_id를 사용합니다.")
+                pad_token_id = eos_token_id
+            
+            if eos_token_id is None:
+                logger.warning("eos_token_id가 None입니다. 기본값 사용")
+                eos_token_id = tokenizer.vocab_size - 1  # 마지막 토큰 ID 사용
+            
+            logger.info(f"토큰 ID 설정 - pad_token_id: {pad_token_id}, eos_token_id: {eos_token_id}")
+            
+            # device_map="auto"를 사용한 경우 device 인자 제거
+            pipeline_kwargs = {
+                "model": model,
+                "tokenizer": tokenizer,
+                "max_new_tokens": self.config.max_new_tokens,
+                "temperature": self.config.temperature,
+                "do_sample": True,
+                "pad_token_id": pad_token_id,
+                "eos_token_id": eos_token_id,
+                "return_full_text": False  # 입력 프롬프트 제외하고 생성된 텍스트만 반환
+            }
+            
+            # GPU가 있고 device_map="auto"를 사용하지 않은 경우에만 device 설정
+            if torch.cuda.is_available():
+                # accelerate로 로딩된 모델인지 확인
+                if hasattr(model, 'hf_device_map') and model.hf_device_map:
+                    logger.info("모델이 accelerate로 로딩됨. device 인자 제거")
+                else:
+                    pipeline_kwargs["device"] = 0
+                    logger.info("GPU에서 실행 - device 설정")
+            else:
+                pipeline_kwargs["device"] = -1
+                logger.info("CPU에서 실행 - device 설정")
+            
+            hf_pipeline = pipeline("text-generation", **pipeline_kwargs)
+            
+            logger.info("파이프라인 생성 완료")
+            
+            # LangChain HuggingFacePipeline 래퍼
+            self.llm = HuggingFacePipeline(pipeline=hf_pipeline)
+            
+            # 프롬프트 템플릿 정의
+            prompt_template = """당신은 회사 문서 기반 AI 어시스턴트입니다. 주어진 문서 내용을 바탕으로 사용자의 질문에 대해 정확하고 정리된 답변을 제공하세요.
+
+답변 작성 가이드라인:
+1. 핵심 정보를 명확하게 정리하여 답변
+2. 구체적인 내용 (시간, 장소, 연락처, 절차 등)을 빠뜨리지 말고 포함
+3. 불필요한 반복이나 중복 내용은 제거
+4. 사용자가 이해하기 쉽도록 구조화하여 제시
+5. 문서에 없는 내용은 추측하지 말 것
+
+질문: {question}
+
+관련 문서 내용:
+{context}
+
+답변:"""
+
+            self.prompt = PromptTemplate(
+                input_variables=["question", "context"],
+                template=prompt_template
+            )
+            
+            # 최신 LangChain 방식으로 체인 생성 (prompt | llm | output_parser)
+            output_parser = StrOutputParser()
+            self.llm_chain = self.prompt | self.llm | output_parser
+            
+            # 디바이스 정보 확인
+            device_info = "auto (accelerate)" if torch.cuda.is_available() and hasattr(model, 'hf_device_map') and model.hf_device_map else pipeline_kwargs.get('device', 'unknown')
+            logger.info(f"EXAONE 모델과 LangChain 파이프라인 초기화 완료 (Device: {device_info})")
+            
+        except Exception as e:
+            logger.error(f"EXAONE 모델 초기화 실패: {e}")
+            import traceback
+            logger.error(f"상세 오류: {traceback.format_exc()}")
+            
+            # 폴백으로 None 설정 (폴백 답변 사용)
+            self.llm = None
+            self.llm_chain = None
     
     async def query(self, question: str, max_docs: int = None) -> RAGResponse:
         """
@@ -85,8 +252,8 @@ class RAGSystem:
             # 6. 컨텍스트 생성
             context = self._build_context(filtered_docs)
             
-            # 7. 답변 생성 (현재는 기본 응답, 향후 LLM 연동)
-            answer = self._generate_answer(question, context, filtered_docs)
+            # 7. 답변 생성 (EXAONE 모델과 LangChain을 활용한 정리된 답변)
+            answer = await self._generate_answer(question, context, filtered_docs)
             
             # 8. 신뢰도 점수 계산
             confidence = self._calculate_confidence(filtered_docs)
@@ -187,9 +354,9 @@ class RAGSystem:
         
         return "\n".join(context_parts)
     
-    def _generate_answer(self, question: str, context: str, documents: List[Dict[str, Any]]) -> str:
+    async def _generate_answer(self, question: str, context: str, documents: List[Dict[str, Any]]) -> str:
         """
-        답변 생성 (간결한 버전)
+        EXAONE 모델과 LangChain을 활용한 답변 생성
         
         Args:
             question (str): 사용자 질문
@@ -202,6 +369,45 @@ class RAGSystem:
         if not documents:
             return "죄송합니다. 질문과 관련된 문서를 찾을 수 없습니다. 문서가 인덱싱되어 있는지 확인해주세요."
         
+        try:
+            # EXAONE 모델이 초기화되어 있는지 확인
+            if self.llm_chain is None:
+                logger.warning("EXAONE 모델이 초기화되지 않음. 폴백 답변 사용")
+                return self._generate_fallback_answer(context, documents)
+            
+            # LangChain을 통한 답변 생성
+            logger.info("EXAONE 모델로 답변 생성 중...")
+            
+            # 최신 LangChain 방식으로 invoke 사용
+            answer = await asyncio.to_thread(
+                self.llm_chain.invoke,
+                {"question": question, "context": context}
+            )
+            
+            # 답변 후처리
+            answer = answer.strip() if isinstance(answer, str) else str(answer).strip()
+            
+            # 프롬프트 반복이나 불필요한 내용 제거
+            if "답변:" in answer:
+                answer = answer.split("답변:")[-1].strip()
+            
+            # 답변이 너무 짧거나 비어있으면 폴백
+            if len(answer) < 20:
+                logger.warning("생성된 답변이 너무 짧음. 폴백 답변 사용")
+                return self._generate_fallback_answer(context, documents)
+            
+            logger.info("EXAONE 모델 답변 생성 완료")
+            return answer
+            
+        except Exception as e:
+            logger.warning(f"EXAONE 모델 답변 생성 중 오류 (폴백 사용): {e}")
+            return self._generate_fallback_answer(context, documents)
+    
+    def _generate_fallback_answer(self, context: str, documents: List[Dict[str, Any]]) -> str:
+        """EXAONE 실패 시 사용할 폴백 답변 생성"""
+        if not documents:
+            return "관련 정보를 찾을 수 없습니다."
+        
         # 컨텍스트에서 핵심 정보만 추출
         context_lines = context.split('\n')
         answer_lines = []
@@ -212,53 +418,17 @@ class RAGSystem:
             if line.startswith('[문서') or not line:
                 continue
             # 핵심 내용만 포함
-            answer_lines.append(line)
+            if len(line) > 10:  # 의미있는 길이의 내용만
+                answer_lines.append(line)
         
-        # 질문에서 키워드 추출 (간단한 버전)
-        question_lower = question.lower()
-        question_keywords = []
-        
-        # 질문 유형별 키워드 매핑
-        keyword_patterns = {
-            '위치': ['위치', '주소', '부서', '층', '건물', '곳'],
-            '시간': ['시간', '언제', '몇시', '시각', '일정'],
-            '방법': ['방법', '어떻게', '절차', '과정', '단계'],
-            '연락처': ['연락처', '전화', '번호', '메일', '이메일'],
-            '차량': ['차량', '자동차', '셀토스', 'xm3', '주차', '예약'],
-            '비용': ['비용', '요금', '가격', '돈', '비', '금액'],
-            '사용': ['사용', '이용', '활용', '접근', '로그인']
-        }
-        
-        # 질문에서 관련 키워드 찾기
-        for category, keywords in keyword_patterns.items():
-            if any(keyword in question_lower for keyword in keywords):
-                question_keywords.extend(keywords)
-        
-        # 답변 조합
         if answer_lines:
-            # 키워드가 있으면 관련성 있는 내용만 필터링
-            if question_keywords:
-                filtered_content = []
-                for line in answer_lines:
-                    line_lower = line.lower()
-                    if any(keyword in line_lower for keyword in question_keywords):
-                        filtered_content.append(line)
-                
-                if filtered_content:
-                    return '\n'.join(filtered_content)
-            
-            # 키워드 매칭이 없거나 결과가 없으면 관련도 높은 내용 반환
-            # 긴 줄이나 의미있는 내용 우선
-            meaningful_lines = []
+            # 중복 제거 및 정리
+            unique_lines = []
             for line in answer_lines:
-                # 너무 짧거나 의미없는 줄 제외
-                if len(line.strip()) > 10 and not line.strip().startswith(('-', '•', '*')):
-                    meaningful_lines.append(line)
+                if line not in unique_lines:
+                    unique_lines.append(line)
             
-            if meaningful_lines:
-                return '\n'.join(meaningful_lines[:3])  # 최대 3줄
-            else:
-                return '\n'.join(answer_lines[:5])  # 최대 5줄
+            return '\n\n'.join(unique_lines[:5])  # 최대 5개 핵심 정보
         else:
             return "관련 정보를 찾았지만 적절한 답변을 추출할 수 없습니다."
     
@@ -311,13 +481,20 @@ class RAGSystem:
             # 벡터 스토어 정보
             vector_info = indexer_info.get('vector_store_info', {})
             
+            # EXAONE 모델 상태 확인
+            llm_status = "initialized" if self.llm_chain is not None else "failed"
+            
             return {
                 "rag_config": {
-                    "embedding_model": self.config.embedding_model,
+                    "embedding_model": settings.model.embedding_model,  # settings에서 가져오기
+                    "llm_model": settings.model.exaone_model_path,      # settings에서 가져오기
                     "max_retrieved_docs": self.config.max_retrieved_docs,
                     "similarity_threshold": self.config.similarity_threshold,
-                    "max_context_length": self.config.max_context_length
+                    "max_context_length": self.config.max_context_length,
+                    "max_new_tokens": self.config.max_new_tokens,
+                    "temperature": self.config.temperature
                 },
+                "llm_status": llm_status,  # LLM 상태 정보 추가
                 "indexer_status": indexer_info,
                 "total_indexed_documents": vector_info.get('total_entities', 0),
                 "status": "active" if vector_info.get('total_entities', 0) > 0 else "no_documents"
@@ -326,6 +503,86 @@ class RAGSystem:
         except Exception as e:
             logger.error(f"시스템 상태 조회 중 오류: {e}")
             return {"status": "error", "message": str(e)}
+
+    def _download_and_save_model(self, local_path: str, model_name: str):
+        """EXAONE 모델을 다운로드하고 로컬에 저장"""
+        try:
+            import os
+            from pathlib import Path
+            
+            logger.info(f"EXAONE 모델 다운로드 중: {model_name} -> {local_path}")
+            
+            # 디렉토리 생성
+            Path(local_path).mkdir(parents=True, exist_ok=True)
+            
+            # 토크나이저 다운로드 및 저장
+            logger.info("토크나이저 다운로드 중...")
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_name,
+                trust_remote_code=True
+            )
+            tokenizer.save_pretrained(local_path)
+            logger.info(f"토크나이저 저장 완료: {local_path}")
+            
+            # 모델 다운로드 및 저장
+            logger.info("모델 다운로드 중...")
+            model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                trust_remote_code=True,
+                low_cpu_mem_usage=True
+            )
+            model.save_pretrained(local_path)
+            logger.info(f"모델 저장 완료: {local_path}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"모델 다운로드/저장 실패: {e}")
+            import traceback
+            logger.error(f"상세 오류: {traceback.format_exc()}")
+            return False
+    
+    def _check_model_exists(self, local_path: str) -> bool:
+        """로컬 모델 존재 여부 확인"""
+        try:
+            import os
+            from pathlib import Path
+            
+            model_path = Path(local_path)
+            
+            # 필수 파일들 확인
+            required_files = [
+                "config.json",
+                "tokenizer.json",
+                "tokenizer_config.json"
+            ]
+            
+            # pytorch 모델 파일 확인 (여러 가능한 이름)
+            model_files = [
+                "pytorch_model.bin",
+                "model.safetensors", 
+                "pytorch_model-00001-of-00001.bin"
+            ]
+            
+            # 필수 파일 존재 확인
+            for file in required_files:
+                if not (model_path / file).exists():
+                    logger.warning(f"필수 파일 없음: {file}")
+                    return False
+            
+            # 모델 파일 중 하나는 존재해야 함
+            model_file_exists = any((model_path / file).exists() for file in model_files)
+            if not model_file_exists:
+                logger.warning("모델 파일 없음")
+                return False
+            
+            logger.info(f"로컬 모델 확인 완료: {local_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"모델 존재 확인 실패: {e}")
+            return False
 
 class SimpleRAGSystem:
     """간단한 RAG 시스템 (LLM 없는 버전)"""

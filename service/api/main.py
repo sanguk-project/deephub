@@ -8,7 +8,10 @@ from typing import List, Dict, Any
 import logging
 import os
 import uuid
+import shutil
+import io
 from pathlib import Path
+from datetime import datetime
 
 # RAG 시스템 컴포넌트 import
 from service.core.rag_system import ask_with_context, get_rag_status, rag_query
@@ -17,9 +20,13 @@ from service.core.composite_rag_system import composite_ask_with_context, get_co
 from admin.tools.document_indexer import (
     index_document_file, 
     index_text, 
-    get_indexer_status
+    get_indexer_status,
+    index_memory_document
 )
 from service.storage.vector_store import get_vector_store_info
+
+# 로거 설정
+logger = logging.getLogger(__name__)
 
 # FastAPI 앱 생성
 app = FastAPI(
@@ -40,8 +47,20 @@ app = FastAPI(
             "description": "백엔드 문서 인덱싱 관련 엔드포인트 (개발자용)",
         },
         {
+            "name": "Document Upload",
+            "description": "문서 업로드 및 실시간 인덱싱 엔드포인트",
+        },
+        {
+            "name": "Memory Storage",
+            "description": "휘발성 메모리 기반 문서 저장소 관리 엔드포인트",
+        },
+        {
             "name": "System Status",
             "description": "시스템 상태 확인 엔드포인트",
+        },
+        {
+            "name": "VectorDB Management",
+            "description": "VectorDB 적재 조건 관리 및 재적재 엔드포인트",
         }
     ]
 )
@@ -51,6 +70,79 @@ templates = Jinja2Templates(directory="service/web/template")
 
 # 정적 파일 마운트
 app.mount("/static", StaticFiles(directory="service/web/static"), name="static")
+
+# === 메모리 기반 문서 저장 시스템 ===
+class InMemoryDocumentStore:
+    """메모리 기반 문서 저장소 (휘발성)"""
+    
+    def __init__(self):
+        self.documents: Dict[str, Dict[str, Any]] = {}
+        logger.info("메모리 기반 문서 저장소 초기화 완료")
+    
+    def store_document(self, doc_id: str, filename: str, content: bytes, metadata: Dict[str, Any] = None) -> bool:
+        """문서를 메모리에 저장"""
+        try:
+            self.documents[doc_id] = {
+                "filename": filename,
+                "content": content,
+                "metadata": metadata or {},
+                "uploaded_at": datetime.now().isoformat(),
+                "file_size": len(content)
+            }
+            logger.info(f"메모리에 문서 저장: {filename} (ID: {doc_id})")
+            return True
+        except Exception as e:
+            logger.error(f"메모리 문서 저장 실패: {e}")
+            return False
+    
+    def get_document(self, doc_id: str) -> Dict[str, Any]:
+        """메모리에서 문서 조회"""
+        return self.documents.get(doc_id)
+    
+    def get_document_content(self, doc_id: str) -> bytes:
+        """메모리에서 문서 내용 조회"""
+        doc = self.documents.get(doc_id)
+        return doc["content"] if doc else None
+    
+    def list_documents(self) -> List[Dict[str, Any]]:
+        """저장된 모든 문서 목록"""
+        return [
+            {
+                "doc_id": doc_id,
+                "filename": doc["filename"],
+                "file_size": doc["file_size"],
+                "uploaded_at": doc["uploaded_at"],
+                "metadata": doc["metadata"]
+            }
+            for doc_id, doc in self.documents.items()
+        ]
+    
+    def remove_document(self, doc_id: str) -> bool:
+        """메모리에서 문서 제거"""
+        if doc_id in self.documents:
+            del self.documents[doc_id]
+            logger.info(f"메모리에서 문서 제거: {doc_id}")
+            return True
+        return False
+    
+    def clear_all(self) -> int:
+        """모든 문서 제거"""
+        count = len(self.documents)
+        self.documents.clear()
+        logger.info(f"메모리에서 모든 문서 제거: {count}개")
+        return count
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """저장소 통계"""
+        total_size = sum(doc["file_size"] for doc in self.documents.values())
+        return {
+            "total_documents": len(self.documents),
+            "total_size_bytes": total_size,
+            "total_size_mb": round(total_size / (1024 * 1024), 2)
+        }
+
+# 전역 메모리 문서 저장소
+memory_store = InMemoryDocumentStore()
 
 # Pydantic 모델 정의
 class QuestionRequest(BaseModel):
@@ -333,13 +425,12 @@ async def health_check():
 
 @app.post("/admin/upload-document",
           tags=["Document Upload"],
-          summary="파일 업로드 및 즉시 인덱싱",
-          description="파일을 업로드하고 즉시 벡터DB에 인덱싱합니다.")
+          summary="파일 업로드 및 즉시 인덱싱 (메모리 기반)",
+          description="파일을 메모리에 저장하고 즉시 벡터DB에 인덱싱합니다. (휘발성 - 프로그램 종료시 삭제)")
 async def upload_and_index_document(
-    file: UploadFile = File(...),
-    doc_title: str = Form(None)
+    file: UploadFile = File(...)
 ):
-    """파일 업로드 및 즉시 인덱싱"""
+    """파일 업로드 및 즉시 인덱싱 (메모리 기반 - 휘발성)"""
     try:
         # 지원하는 파일 확장자 확인
         supported_extensions = ['.pdf', '.txt', '.docx', '.md']
@@ -351,68 +442,65 @@ async def upload_and_index_document(
                 detail=f"지원하지 않는 파일 형식입니다. 지원 형식: {', '.join(supported_extensions)}"
             )
         
-        # 임시 파일 저장
-        upload_id = str(uuid.uuid4())
-        temp_filename = f"{upload_id}_{file.filename}"
-        temp_file_path = Path("/tmp") / temp_filename
+        # 고유 문서 ID 생성
+        doc_id = str(uuid.uuid4())
         
-        # 파일 저장
+        # 파일 내용을 메모리로 읽기
         content = await file.read()
-        with open(temp_file_path, "wb") as f:
-            f.write(content)
         
-        # 문서 디렉토리로 이동
-        from shared.config.settings import settings
-        documents_dir = Path(settings.path.documents_dir)
-        documents_dir.mkdir(exist_ok=True)
+        # 메모리 저장소에 문서 저장
+        metadata = {
+            "original_filename": file.filename,
+            "content_type": file.content_type,
+            "file_extension": file_extension,
+            "upload_method": "web_interface"
+        }
         
-        final_file_path = documents_dir / file.filename
+        store_success = memory_store.store_document(
+            doc_id=doc_id,
+            filename=file.filename,
+            content=content,
+            metadata=metadata
+        )
         
-        # 동일한 파일명이 있으면 번호 추가
-        counter = 1
-        while final_file_path.exists():
-            name_without_ext = Path(file.filename).stem
-            extension = Path(file.filename).suffix
-            final_file_path = documents_dir / f"{name_without_ext}_{counter}{extension}"
-            counter += 1
+        if not store_success:
+            raise HTTPException(status_code=500, detail="메모리 저장 실패")
         
-        # 최종 위치로 이동
-        os.rename(temp_file_path, final_file_path)
+        # 즉시 인덱싱 (메모리 기반)
+        from admin.tools.document_indexer import index_memory_document
         
-        # 즉시 인덱싱
-        from admin.tools.document_indexer import index_document_file
+        index_success = await index_memory_document(doc_id, file.filename, content, metadata)
         
-        metadata = {}
-        if doc_title:
-            metadata["title"] = doc_title
-        metadata["upload_id"] = upload_id
-        metadata["original_filename"] = file.filename
-        
-        success = index_document_file(str(final_file_path), metadata, force=True)
-        
-        if success:
+        if index_success:
+            # 저장소 통계
+            stats = memory_store.get_stats()
+            
             return {
                 "success": True,
-                "message": f"파일 '{file.filename}' 업로드 및 인덱싱 완료",
-                "file_path": str(final_file_path),
-                "upload_id": upload_id,
-                "indexed": True
+                "message": f"파일 '{file.filename}' 메모리 업로드 및 인덱싱 완료 (휘발성)",
+                "doc_id": doc_id,
+                "filename": file.filename,
+                "file_size": len(content),
+                "storage_type": "memory",
+                "indexed": True,
+                "memory_stats": stats
             }
         else:
+            # 인덱싱 실패 시 메모리에서도 제거
+            memory_store.remove_document(doc_id)
             return {
                 "success": False,
-                "message": f"파일 업로드는 완료되었으나 인덱싱 실패: {file.filename}",
-                "file_path": str(final_file_path),
-                "upload_id": upload_id,
+                "message": f"파일 메모리 저장은 완료되었으나 인덱싱 실패: {file.filename}",
+                "doc_id": doc_id,
                 "indexed": False
             }
         
     except Exception as e:
-        # 임시 파일 정리
-        if 'temp_file_path' in locals() and temp_file_path.exists():
-            os.remove(temp_file_path)
+        import traceback
+        logger.error(f"메모리 기반 파일 업로드 및 인덱싱 중 오류: {str(e)}")
+        logger.error(f"상세 오류: {traceback.format_exc()}")
         
-        raise HTTPException(status_code=500, detail=f"파일 업로드 및 인덱싱 중 오류: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"메모리 기반 파일 업로드 및 인덱싱 중 오류: {str(e)}")
 
 @app.post("/admin/quick-text",
           tags=["Document Upload"],
@@ -441,7 +529,7 @@ async def quick_text_index(
         
         # 즉시 인덱싱
         from admin.tools.document_indexer import index_text
-        success = index_text(text, doc_id, metadata)
+        success = await index_text(text, doc_id)
         
         if success:
             return {
@@ -491,6 +579,234 @@ async def get_indexing_status():
             "indexer_status": {},
             "vector_store_info": {}
         }
+
+# === 메모리 저장소 관리 엔드포인트 ===
+
+@app.get("/admin/memory-documents",
+         tags=["Memory Storage"],
+         summary="메모리 문서 목록 조회",
+         description="현재 메모리에 저장된 모든 문서 목록을 조회합니다.")
+async def get_memory_documents():
+    """메모리 저장된 문서 목록 조회"""
+    try:
+        documents = memory_store.list_documents()
+        stats = memory_store.get_stats()
+        
+        return {
+            "success": True,
+            "documents": documents,
+            "stats": stats,
+            "message": f"총 {len(documents)}개 문서가 메모리에 저장됨"
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "documents": [],
+            "stats": {}
+        }
+
+@app.get("/admin/memory-document/{doc_id}",
+         tags=["Memory Storage"],
+         summary="특정 메모리 문서 조회",
+         description="문서 ID로 특정 메모리 문서의 상세 정보를 조회합니다.")
+async def get_memory_document(doc_id: str):
+    """특정 메모리 문서 조회"""
+    try:
+        document = memory_store.get_document(doc_id)
+        
+        if document:
+            # content는 너무 크므로 제외하고 메타데이터만 반환
+            return {
+                "success": True,
+                "doc_id": doc_id,
+                "filename": document["filename"],
+                "file_size": document["file_size"],
+                "uploaded_at": document["uploaded_at"],
+                "metadata": document["metadata"]
+            }
+        else:
+            raise HTTPException(status_code=404, detail=f"문서를 찾을 수 없음: {doc_id}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+@app.delete("/admin/memory-document/{doc_id}",
+           tags=["Memory Storage"],
+           summary="메모리 문서 삭제",
+           description="특정 문서를 메모리에서 삭제합니다. (벡터DB에서는 유지됨)")
+async def delete_memory_document(doc_id: str):
+    """메모리에서 문서 삭제"""
+    try:
+        success = memory_store.remove_document(doc_id)
+        
+        if success:
+            stats = memory_store.get_stats()
+            return {
+                "success": True,
+                "message": f"문서 {doc_id}가 메모리에서 삭제됨",
+                "remaining_stats": stats
+            }
+        else:
+            raise HTTPException(status_code=404, detail=f"문서를 찾을 수 없음: {doc_id}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+@app.delete("/admin/memory-documents/clear",
+           tags=["Memory Storage"],
+           summary="모든 메모리 문서 삭제",
+           description="메모리에 저장된 모든 문서를 삭제합니다. ⚠️ 복구 불가능!")
+async def clear_all_memory_documents():
+    """모든 메모리 문서 삭제"""
+    try:
+        count = memory_store.clear_all()
+        
+        return {
+            "success": True,
+            "message": f"모든 메모리 문서 삭제 완료: {count}개 문서",
+            "cleared_count": count
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "cleared_count": 0
+        }
+
+@app.get("/admin/memory-stats",
+         tags=["Memory Storage"],
+         summary="메모리 저장소 통계",
+         description="메모리 저장소의 사용량 및 통계 정보를 조회합니다.")
+async def get_memory_stats():
+    """메모리 저장소 통계"""
+    try:
+        stats = memory_store.get_stats()
+        documents = memory_store.list_documents()
+        
+        # 파일 유형별 통계
+        type_stats = {}
+        for doc in documents:
+            ext = doc["metadata"].get("file_extension", "unknown")
+            if ext not in type_stats:
+                type_stats[ext] = {"count": 0, "total_size": 0}
+            type_stats[ext]["count"] += 1
+            type_stats[ext]["total_size"] += doc["file_size"]
+        
+        return {
+            "success": True,
+            "overall_stats": stats,
+            "type_breakdown": type_stats,
+            "storage_info": {
+                "storage_type": "memory",
+                "volatile": True,
+                "description": "프로그램 종료 시 모든 데이터 삭제됨"
+            }
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+# === VectorDB 관리 엔드포인트 ===
+
+@app.get("/admin/vector-config-status",
+         tags=["VectorDB Management"],
+         summary="VectorDB 설정 상태 확인",
+         description="VectorDB 적재 조건 변경 여부 및 현재 설정 상태를 확인합니다.")
+async def get_vector_config_status():
+    """VectorDB 설정 상태 확인"""
+    try:
+        from service.storage.vector_config_manager import get_config_status
+        
+        status = get_config_status()
+        return {
+            "success": True,
+            "config_changed": status["config_changed"],
+            "current_config": status["current_config"],
+            "saved_config": status["saved_config"],
+            "config_file_exists": status["config_file_exists"],
+            "documents_dir_exists": status["documents_dir_exists"],
+            "faiss_index_dir": status["faiss_index_dir"],
+            "message": "설정 변경 감지됨" if status["config_changed"] else "설정 변경 없음"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"VectorDB 설정 상태 확인 중 오류: {str(e)}")
+
+@app.post("/admin/vector-auto-reindex",
+          tags=["VectorDB Management"],
+          summary="자동 설정 확인 및 재적재",
+          description="VectorDB 적재 조건 변경을 확인하고 필요시 자동으로 초기화 및 재적재를 수행합니다.")
+async def vector_auto_reindex():
+    """자동 설정 확인 및 재적재"""
+    try:
+        from service.storage.vector_config_manager import auto_check_and_update
+        
+        updated = await auto_check_and_update()
+        
+        return {
+            "success": True,
+            "updated": updated,
+            "message": "설정 변경으로 인한 자동 재적재 완료" if updated else "설정 변경 없음 - 재적재 불필요"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"자동 재적재 중 오류: {str(e)}")
+
+@app.post("/admin/vector-force-reindex",
+          tags=["VectorDB Management"],
+          summary="강제 초기화 및 재적재",
+          description="VectorDB를 강제로 초기화하고 모든 문서를 재적재합니다. ⚠️ 기존 벡터 데이터가 모두 삭제됩니다!")
+async def vector_force_reindex():
+    """강제 VectorDB 초기화 및 재적재"""
+    try:
+        from service.storage.vector_config_manager import force_reset_and_reindex
+        
+        await force_reset_and_reindex()
+        
+        return {
+            "success": True,
+            "message": "VectorDB 강제 초기화 및 재적재 완료"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"강제 재적재 중 오류: {str(e)}")
+
+@app.get("/admin/vector-config-info",
+         tags=["VectorDB Management"],
+         summary="현재 VectorDB 설정 정보",
+         description="현재 적용중인 VectorDB 적재 조건들을 상세히 조회합니다.")
+async def get_vector_config_info():
+    """현재 VectorDB 설정 정보 조회"""
+    try:
+        from service.storage.vector_config_manager import get_vector_config_manager
+        
+        manager = get_vector_config_manager()
+        config_info = manager.get_current_config_info()
+        
+        return {
+            "success": True,
+            "config": config_info,
+            "message": "VectorDB 설정 정보 조회 완료"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"설정 정보 조회 중 오류: {str(e)}")
 
 # 개발 서버 실행용
 if __name__ == "__main__":

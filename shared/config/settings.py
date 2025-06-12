@@ -36,7 +36,8 @@ class ModelConfig:
     embedding_model: str = "BAAI/bge-m3"
     verification_model: str = "gpt-4.1-2025-04-14"
     final_answer_model: str = "gpt-4.1-2025-04-14"
-    exaone_model_path: str = "/mnt/ssd/1/sanguk/EXAONE-3.5-2.4B-Instruct"
+    exaone_model_path: str = "/mnt/ssd/1/hub/EXAONE-3.5-2.4B-Instruct"  # 로컬 저장 경로
+    exaone_model_name: str = "LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct"     # HuggingFace 모델명
 
 @dataclass
 class RAGConfig:

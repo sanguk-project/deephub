@@ -10,16 +10,40 @@ import numpy as np
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
 
-# FAISS 로깅 최적화
+# FAISS 로깅 완전 억제 (GPU 경고 메시지 제거)
+import os
+os.environ['FAISS_OPT_LEVEL'] = 'generic'  # GPU 기능 시도 방지
+
+# FAISS 관련 모든 로거 억제
 logging.getLogger('faiss._loader').setLevel(logging.CRITICAL)
 logging.getLogger('faiss.loader').setLevel(logging.CRITICAL)
+logging.getLogger('faiss').setLevel(logging.CRITICAL)
+
+# FAISS GPU 관련 경고 메시지 필터링
+class FaissLogFilter(logging.Filter):
+    def filter(self, record):
+        # GPU 관련 메시지 필터링
+        if 'GPU' in record.getMessage() or 'GpuIndex' in record.getMessage():
+            return False
+        if 'Failed to load' in record.getMessage() and 'GPU' in record.getMessage():
+            return False
+        return True
+
+# 모든 FAISS 관련 로거에 필터 적용
+for logger_name in ['faiss', 'faiss._loader', 'faiss.loader']:
+    faiss_logger = logging.getLogger(logger_name)
+    faiss_logger.addFilter(FaissLogFilter())
+    faiss_logger.setLevel(logging.CRITICAL)
 
 import faiss
 from pydantic import BaseModel
 
-# FAISS 로거 레벨 조정
-faiss_logger = logging.getLogger("faiss")
-faiss_logger.setLevel(logging.ERROR)
+# FAISS CPU 전용 모드 강제 설정
+try:
+    # CPU 스레드 수 미리 설정
+    faiss.omp_set_num_threads(8)
+except Exception:
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -159,11 +183,12 @@ class FAISSVectorStore:
             vectors = []
             new_metadata = {}
             new_id_mapping = {}
+            duplicate_count = 0
             
             for doc in documents:
                 # 이미 존재하는 문서 ID 확인
                 if doc.id in self.id_to_index:
-                    logger.warning(f"문서 ID가 이미 존재함: {doc.id}")
+                    duplicate_count += 1
                     continue
                 
                 # 벡터 정규화
@@ -184,8 +209,15 @@ class FAISSVectorStore:
                 new_id_mapping[doc.id] = current_index
                 self.next_index += 1
             
+            # 중복 문서 통계 로깅
+            if duplicate_count > 0:
+                logger.info(f"중복 문서 {duplicate_count}개 스킵됨 (총 {len(documents)}개 중)")
+            
             if not vectors:
-                logger.warning("삽입할 문서가 없습니다")
+                if duplicate_count > 0:
+                    logger.info(f"모든 문서가 이미 인덱싱됨 ({duplicate_count}개 중복)")
+                else:
+                    logger.warning("삽입할 문서가 없습니다")
                 return True
             
             # FAISS 인덱스에 벡터 추가

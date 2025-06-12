@@ -4,6 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Hello World</title>
+  
+  <!-- 마크다운 렌더링을 위한 라이브러리 -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+  <!-- 코드 하이라이팅을 위한 라이브러리 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  
   <style>
     /* 기본 마진, 패딩 제거 및 전체 높이 설정 */
     html, body {
@@ -151,8 +158,106 @@
       margin-top: 10px;
       margin-left: 20px;
       color: black;
-      white-space: pre-wrap;
+      white-space: normal; /* 마크다운 렌더링을 위해 변경 */
       margin-bottom: 25px;
+      line-height: 1.6;
+    }
+
+    /* 마크다운 스타일링 */
+    .answer h1, .answer h2, .answer h3, .answer h4, .answer h5, .answer h6 {
+      margin: 1em 0 0.5em 0;
+      color: #333;
+      font-weight: bold;
+    }
+
+    .answer h1 { font-size: 1.5em; border-bottom: 2px solid #eee; padding-bottom: 0.3em; }
+    .answer h2 { font-size: 1.3em; border-bottom: 1px solid #eee; padding-bottom: 0.3em; }
+    .answer h3 { font-size: 1.1em; }
+
+    .answer p {
+      margin: 0.8em 0;
+    }
+
+    .answer ul, .answer ol {
+      margin: 0.8em 0;
+      padding-left: 2em;
+    }
+
+    .answer li {
+      margin: 0.3em 0;
+    }
+
+    .answer blockquote {
+      border-left: 4px solid #ddd;
+      margin: 1em 0;
+      padding: 0.5em 1em;
+      background-color: #f9f9f9;
+      color: #666;
+    }
+
+    .answer code {
+      background-color: #f4f4f4;
+      border-radius: 3px;
+      padding: 2px 4px;
+      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+      font-size: 0.9em;
+      color: #d63384;
+    }
+
+    .answer pre {
+      background-color: #f8f8f8;
+      border: 1px solid #e1e4e8;
+      border-radius: 6px;
+      padding: 16px;
+      overflow-x: auto;
+      margin: 1em 0;
+    }
+
+    .answer pre code {
+      background-color: transparent;
+      padding: 0;
+      color: inherit;
+    }
+
+    .answer table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 1em 0;
+    }
+
+    .answer th, .answer td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+
+    .answer th {
+      background-color: #f2f2f2;
+      font-weight: bold;
+    }
+
+    .answer strong {
+      font-weight: bold;
+      color: #333;
+    }
+
+    .answer em {
+      font-style: italic;
+    }
+
+    .answer a {
+      color: #0066cc;
+      text-decoration: none;
+    }
+
+    .answer a:hover {
+      text-decoration: underline;
+    }
+
+    .answer hr {
+      border: none;
+      border-top: 1px solid #ddd;
+      margin: 2em 0;
     }
 
     /* 모달 스타일 */
@@ -291,25 +396,23 @@
         <textarea id="input-text" rows="3" placeholder="텍스트 입력..."></textarea>
         <button id="go-button">Go</button>
         <button id="upload-button">📁</button>
-        <button id="text-upload-button">📝</button>
       </div>
       
       <!-- 파일 업로드 모달 -->
       <div id="upload-modal" class="modal" style="display: none;">
         <div class="modal-content">
           <span class="close">&times;</span>
-          <h3>📁 문서 업로드 및 인덱싱</h3>
+          <h3>📁 문서 업로드 및 인덱싱 (메모리 기반)</h3>
+          <div class="memory-warning" style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 10px; margin: 10px 0; border-radius: 5px;">
+            <strong>⚠️ 휘발성 메모리 저장:</strong> 업로드된 파일은 메모리에만 저장되며, 프로그램 종료 시 자동으로 삭제됩니다.
+          </div>
           <form id="upload-form" enctype="multipart/form-data">
             <div class="form-group">
               <label>파일 선택:</label>
               <input type="file" id="file-input" accept=".pdf,.txt,.docx,.md" required>
-              <div class="file-info">지원 형식: PDF, TXT, DOCX, MD</div>
+              <div class="file-info">지원 형식: PDF, TXT, DOCX, MD (휘발성 저장)</div>
             </div>
-            <div class="form-group">
-              <label>문서 제목 (선택사항):</label>
-              <input type="text" id="doc-title" placeholder="문서 제목을 입력하세요">
-            </div>
-            <button type="submit">업로드 및 인덱싱</button>
+            <button type="submit">메모리 업로드 및 인덱싱</button>
           </form>
           <div id="upload-progress" style="display: none;">
             <div class="progress-bar">
@@ -319,39 +422,69 @@
           </div>
         </div>
       </div>
-      
-      <!-- 텍스트 입력 모달 -->
-      <div id="text-modal" class="modal" style="display: none;">
-        <div class="modal-content">
-          <span class="close">&times;</span>
-          <h3>📝 텍스트 직접 인덱싱</h3>
-          <form id="text-form">
-            <div class="form-group">
-              <label>제목:</label>
-              <input type="text" id="text-title" placeholder="텍스트 제목" required>
-            </div>
-            <div class="form-group">
-              <label>카테고리:</label>
-              <select id="text-category">
-                <option value="general">일반</option>
-                <option value="faq">FAQ</option>
-                <option value="manual">매뉴얼</option>
-                <option value="policy">정책</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>내용:</label>
-              <textarea id="text-content" rows="10" placeholder="인덱싱할 텍스트를 입력하세요" required></textarea>
-            </div>
-            <button type="submit">인덱싱</button>
-          </form>
-        </div>
-      </div>
+
     </div>
   </div>
-  <div id="bottom">ILJOO GnS (llama-3.2)</div>
+  <div id="bottom">ILJOO GnS </div>
 
   <script>
+    // === 마크다운 설정 및 함수 ===
+    
+    // marked.js 설정
+    marked.setOptions({
+      highlight: function(code, lang) {
+        if (lang && hljs.getLanguage(lang)) {
+          return hljs.highlight(code, { language: lang }).value;
+        } else {
+          return hljs.highlightAuto(code).value;
+        }
+      },
+      breaks: true,
+      gfm: true
+    });
+
+    // 마크다운을 HTML로 변환하는 함수
+    function renderMarkdown(text) {
+      try {
+        return marked.parse(text);
+      } catch (error) {
+        console.error('마크다운 렌더링 오류:', error);
+        return text.replace(/\n/g, '<br>'); // 폴백: 줄바꿈만 처리
+      }
+    }
+
+    // 타이핑 효과와 함께 마크다운 렌더링하는 함수
+    function typeMarkdownText(element, markdownText, speed = 30) {
+      let currentIndex = 0;
+      const chunks = markdownText.split('');
+      let currentText = '';
+      
+      const typeInterval = setInterval(() => {
+        if (currentIndex < chunks.length) {
+          currentText += chunks[currentIndex];
+          element.innerHTML = renderMarkdown(currentText);
+          
+          // 코드 하이라이팅 적용
+          element.querySelectorAll('pre code').forEach((block) => {
+            hljs.highlightElement(block);
+          });
+          
+          currentIndex++;
+        } else {
+          clearInterval(typeInterval);
+          // 최종 렌더링 및 하이라이팅
+          element.innerHTML = renderMarkdown(markdownText);
+          element.querySelectorAll('pre code').forEach((block) => {
+            hljs.highlightElement(block);
+          });
+        }
+      }, speed);
+      
+      return typeInterval;
+    }
+
+    // === 편집 모드 관리 ===
+
     // 편집모드 상태 관리
     let isEditMode = false;
 
@@ -485,25 +618,25 @@
         `;
         answerDiv.appendChild(qualityScoreDiv);
         
-        const answerSpan = document.createElement('span');
-        answerSpan.className = "answer-text";
-        answerDiv.appendChild(answerSpan);
+        const answerContentDiv = document.createElement('div');
+        answerContentDiv.className = "answer-content";
+        answerDiv.appendChild(answerContentDiv);
         qaEntry.appendChild(answerDiv);
 
-        // 타이핑 효과 적용
+        // 마크다운 타이핑 효과 적용
         const answerText = data.answer;
-        let i = 0;
-        const typingInterval = setInterval(() => {
-          if (i < answerText.length) {
-            answerSpan.innerHTML += answerText.charAt(i);
-            i++;
-          } else {
-            clearInterval(typingInterval);
-          }
-        }, 50);
+        typeMarkdownText(answerContentDiv, answerText, 30);
 
-        // 새 메시지 추가 시 자동 스크롤
-        contentDiv.scrollTop = contentDiv.scrollHeight;
+        // 새 메시지 추가 시 자동 스크롤 (타이핑 진행 중에도)
+        const scrollInterval = setInterval(() => {
+          contentDiv.scrollTop = contentDiv.scrollHeight;
+        }, 100);
+        
+        // 타이핑 완료 후 스크롤 인터벌 정리
+        setTimeout(() => {
+          clearInterval(scrollInterval);
+          contentDiv.scrollTop = contentDiv.scrollHeight;
+        }, answerText.length * 30 + 1000);
       })
       .catch(error => {
         console.error('에러 발생:', error);
@@ -524,9 +657,7 @@
     
     // 모달 관리
     const uploadModal = document.getElementById('upload-modal');
-    const textModal = document.getElementById('text-modal');
     const uploadButton = document.getElementById('upload-button');
-    const textUploadButton = document.getElementById('text-upload-button');
     const closeBtns = document.querySelectorAll('.close');
 
     // 파일 업로드 모달 열기
@@ -535,17 +666,10 @@
       uploadModal.style.display = 'flex';
     });
 
-    // 텍스트 입력 모달 열기
-    textUploadButton.addEventListener('click', function() {
-      if (isEditMode) return;
-      textModal.style.display = 'flex';
-    });
-
     // 모달 닫기
     closeBtns.forEach(btn => {
       btn.addEventListener('click', function() {
         uploadModal.style.display = 'none';
-        textModal.style.display = 'none';
       });
     });
 
@@ -554,9 +678,6 @@
       if (e.target === uploadModal) {
         uploadModal.style.display = 'none';
       }
-      if (e.target === textModal) {
-        textModal.style.display = 'none';
-      }
     });
 
     // 파일 업로드 처리
@@ -564,7 +685,6 @@
       e.preventDefault();
       
       const fileInput = document.getElementById('file-input');
-      const docTitle = document.getElementById('doc-title').value;
       const progressDiv = document.getElementById('upload-progress');
       const progressFill = document.querySelector('.progress-fill');
       const progressText = document.querySelector('.progress-text');
@@ -581,9 +701,6 @@
       
       const formData = new FormData();
       formData.append('file', fileInput.files[0]);
-      if (docTitle) {
-        formData.append('doc_title', docTitle);
-      }
       
       try {
         progressFill.style.width = '50%';
@@ -608,13 +725,12 @@
           const contentDiv = document.querySelector('.content');
           const messageDiv = document.createElement('div');
           messageDiv.className = 'success-message';
-          messageDiv.innerHTML = `✅ ${result.message}`;
+          messageDiv.innerHTML = renderMarkdown(`✅ ${result.message}`);
           contentDiv.appendChild(messageDiv);
           contentDiv.scrollTop = contentDiv.scrollHeight;
           
           // 폼 초기화
           fileInput.value = '';
-          document.getElementById('doc-title').value = '';
           
           setTimeout(() => {
             uploadModal.style.display = 'none';
@@ -633,68 +749,11 @@
         const contentDiv = document.querySelector('.content');
         const messageDiv = document.createElement('div');
         messageDiv.className = 'error-message';
-        messageDiv.innerHTML = `❌ 업로드 실패: ${error.message}`;
+        messageDiv.innerHTML = renderMarkdown(`❌ 업로드 실패: ${error.message}`);
         contentDiv.appendChild(messageDiv);
         contentDiv.scrollTop = contentDiv.scrollHeight;
       }
     });
-
-    // 텍스트 인덱싱 처리
-    document.getElementById('text-form').addEventListener('submit', async function(e) {
-      e.preventDefault();
-      
-      const title = document.getElementById('text-title').value;
-      const category = document.getElementById('text-category').value;
-      const content = document.getElementById('text-content').value;
-      
-      if (!title.trim() || !content.trim()) {
-        alert('제목과 내용을 모두 입력해주세요.');
-        return;
-      }
-      
-      const formData = new FormData();
-      formData.append('text', content);
-      formData.append('title', title);
-      formData.append('category', category);
-      
-      try {
-        const response = await fetch('/admin/quick-text', {
-          method: 'POST',
-          body: formData
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-          // 성공 메시지를 채팅 영역에 표시
-          const contentDiv = document.querySelector('.content');
-          const messageDiv = document.createElement('div');
-          messageDiv.className = 'success-message';
-          messageDiv.innerHTML = `✅ ${result.message} (길이: ${result.text_length}자)`;
-          contentDiv.appendChild(messageDiv);
-          contentDiv.scrollTop = contentDiv.scrollHeight;
-          
-          // 폼 초기화
-          document.getElementById('text-title').value = '';
-          document.getElementById('text-content').value = '';
-          document.getElementById('text-category').value = 'general';
-          
-          textModal.style.display = 'none';
-          
-        } else {
-          throw new Error(result.message);
-        }
-        
-      } catch (error) {
-        // 에러 메시지를 채팅 영역에 표시
-        const contentDiv = document.querySelector('.content');
-        const messageDiv = document.createElement('div');
-        messageDiv.className = 'error-message';
-        messageDiv.innerHTML = `❌ 인덱싱 실패: ${error.message}`;
-        contentDiv.appendChild(messageDiv);
-                 contentDiv.scrollTop = contentDiv.scrollHeight;
-       }
-     });
 
     // === 드래그 앤 드롭 기능 ===
     const contentArea = document.getElementById('content-area');
@@ -730,7 +789,7 @@
         if (!supportedExtensions.includes(extension)) {
           const messageDiv = document.createElement('div');
           messageDiv.className = 'error-message';
-          messageDiv.innerHTML = `❌ 지원하지 않는 파일 형식: ${file.name}`;
+          messageDiv.innerHTML = renderMarkdown(`❌ 지원하지 않는 파일 형식: ${file.name}`);
           contentArea.appendChild(messageDiv);
           continue;
         }
@@ -738,7 +797,7 @@
         // 업로드 진행 메시지 표시
         const progressDiv = document.createElement('div');
         progressDiv.className = 'success-message';
-        progressDiv.innerHTML = `📁 업로드 중: ${file.name}...`;
+        progressDiv.innerHTML = renderMarkdown(`📁 업로드 중: ${file.name}...`);
         contentArea.appendChild(progressDiv);
         contentArea.scrollTop = contentArea.scrollHeight;
         
@@ -759,12 +818,12 @@
           if (result.success) {
             const messageDiv = document.createElement('div');
             messageDiv.className = 'success-message';
-            messageDiv.innerHTML = `✅ ${result.message}`;
+            messageDiv.innerHTML = renderMarkdown(`✅ ${result.message}`);
             contentArea.appendChild(messageDiv);
           } else {
             const messageDiv = document.createElement('div');
             messageDiv.className = 'error-message';
-            messageDiv.innerHTML = `❌ ${file.name} 업로드 실패: ${result.message}`;
+            messageDiv.innerHTML = renderMarkdown(`❌ ${file.name} 업로드 실패: ${result.message}`);
             contentArea.appendChild(messageDiv);
           }
           
@@ -772,7 +831,7 @@
           progressDiv.remove();
           const messageDiv = document.createElement('div');
           messageDiv.className = 'error-message';
-          messageDiv.innerHTML = `❌ ${file.name} 업로드 오류: ${error.message}`;
+          messageDiv.innerHTML = renderMarkdown(`❌ ${file.name} 업로드 오류: ${error.message}`);
           contentArea.appendChild(messageDiv);
         }
         

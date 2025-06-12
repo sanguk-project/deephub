@@ -142,8 +142,12 @@ class DocumentIndexer:
             if not force_reindex and file_path in self.indexed_files:
                 existing_info = self.indexed_files[file_path]
                 if existing_info.file_hash == file_hash:
-                    logger.info(f"파일이 이미 인덱싱됨: {file_name}")
+                    logger.debug(f"파일이 이미 인덱싱됨 (스킵): {file_name}")
                     return True
+                else:
+                    logger.info(f"파일이 수정됨, 재인덱싱: {file_name}")
+            elif force_reindex:
+                logger.info(f"강제 재인덱싱: {file_name}")
             
             logger.info(f"문서 인덱싱 시작 (LlamaIndex): {file_name}")
             
@@ -234,7 +238,7 @@ class DocumentIndexer:
                 
                 if not documents:
                     logger.warning(f"인덱싱할 문서가 없음: {directory_path}")
-                    return {"success": True, "indexed_count": 0, "failed_count": 0}
+                    return {"success": True, "indexed_files": 0, "failed_files": 0, "total_files": 0}
                 
                 # 각 문서별로 개별 처리
                 indexed_count = 0
@@ -263,8 +267,8 @@ class DocumentIndexer:
                 
                 return {
                     "success": True,
-                    "indexed_count": indexed_count,
-                    "failed_count": failed_count,
+                    "indexed_files": indexed_count,
+                    "failed_files": failed_count,
                     "total_files": len(documents)
                 }
                 
@@ -297,7 +301,7 @@ class DocumentIndexer:
                         files_to_index.append(file_path)
         
         if not files_to_index:
-            return {"success": True, "indexed_count": 0, "failed_count": 0}
+            return {"success": True, "indexed_files": 0, "failed_files": 0, "total_files": 0}
         
         # 순차 인덱싱
         results = []
@@ -310,8 +314,8 @@ class DocumentIndexer:
         
         return {
             "success": True,
-            "indexed_count": indexed_count,
-            "failed_count": failed_count,
+            "indexed_files": indexed_count,
+            "failed_files": failed_count,
             "total_files": len(files_to_index)
         }
     
@@ -390,6 +394,159 @@ class DocumentIndexer:
         except Exception as e:
             logger.error(f"인덱서 상태 조회 중 오류: {e}")
             return {"error": str(e)}
+    
+    async def index_memory_document(self, doc_id: str, filename: str, content: bytes, metadata: Dict[str, Any] = None) -> bool:
+        """메모리 기반 문서 인덱싱 (휘발성)"""
+        try:
+            file_ext = Path(filename).suffix.lower()
+            
+            # 지원 형식 확인
+            if file_ext not in self.config.supported_formats:
+                logger.warning(f"지원하지 않는 파일 형식: {file_ext}")
+                return False
+            
+            logger.info(f"메모리 문서 인덱싱 시작: {filename} (ID: {doc_id})")
+            
+            # 메모리에서 텍스트 추출
+            text_content = self._extract_text_from_memory(content, file_ext, filename)
+            if not text_content:
+                logger.warning(f"메모리 문서에서 텍스트 추출 실패: {filename}")
+                return False
+            
+            # 텍스트 청킹
+            text_chunks = self.text_splitter.split_text(text_content)
+            if not text_chunks:
+                logger.warning(f"청킹된 텍스트가 없음: {filename}")
+                return False
+            
+            # 임베딩 생성 및 벡터 DB 저장
+            document_embeddings = []
+            
+            for i, chunk in enumerate(text_chunks):
+                # 임베딩 생성
+                embedding = self.embed_model.get_text_embedding(chunk)
+                
+                # 문서 임베딩 객체 생성
+                chunk_id = f"{doc_id}_chunk_{i}"
+                doc_embedding = DocumentEmbedding(
+                    id=chunk_id,
+                    text=chunk,
+                    embedding=embedding,
+                    metadata={
+                        "source_file": filename,
+                        "doc_id": doc_id,
+                        "chunk_index": i,
+                        "total_chunks": len(text_chunks),
+                        "format": file_ext,
+                        "storage_type": "memory",
+                        "extraction_method": "llamaindex_memory",
+                        "indexed_at": datetime.now().isoformat(),
+                        **(metadata or {})
+                    }
+                )
+                document_embeddings.append(doc_embedding)
+            
+            # 벡터 DB에 삽입
+            success = await self.vector_store.insert_documents(document_embeddings)
+            
+            if success:
+                # 메모리 인덱싱 정보 저장
+                self.indexed_files[doc_id] = DocumentInfo(
+                    file_path=f"memory://{doc_id}",
+                    file_name=filename,
+                    file_size=len(content),
+                    file_hash=hashlib.md5(content).hexdigest(),
+                    last_modified=datetime.now(),
+                    format=file_ext,
+                    chunks_count=len(text_chunks),
+                    indexed_at=datetime.now()
+                )
+                
+                logger.info(f"메모리 문서 인덱싱 완료: {filename} ({len(text_chunks)}개 청크)")
+                return True
+            else:
+                logger.error(f"벡터 DB 삽입 실패: {filename}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"메모리 문서 인덱싱 중 오류 {filename}: {e}")
+            return False
+    
+    def _extract_text_from_memory(self, content: bytes, file_ext: str, filename: str) -> str:
+        """메모리에서 LlamaIndex 리더를 사용한 텍스트 추출"""
+        try:
+            import tempfile
+            import os
+            
+            # 임시 파일로 저장 후 LlamaIndex 리더 사용
+            with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as temp_file:
+                temp_file.write(content)
+                temp_file_path = temp_file.name
+            
+            try:
+                # 확장자별 LlamaIndex 리더 사용
+                reader = self.file_extractor.get(file_ext)
+                
+                if reader is None:
+                    logger.warning(f"LlamaIndex에서 지원하지 않는 파일 형식: {file_ext}")
+                    return ""
+                
+                # LlamaIndex 리더로 문서 로드
+                documents = reader.load_data(temp_file_path)
+                
+                # 모든 문서의 텍스트 결합
+                text_parts = []
+                for doc in documents:
+                    if hasattr(doc, 'text') and doc.text:
+                        text_parts.append(doc.text)
+                
+                combined_text = '\n'.join(text_parts)
+                logger.info(f"LlamaIndex로 텍스트 추출 완료: {filename} ({len(combined_text)} 문자)")
+                
+                return combined_text
+                
+            finally:
+                # 임시 파일 삭제
+                try:
+                    os.unlink(temp_file_path)
+                except Exception as e:
+                    logger.warning(f"임시 파일 삭제 실패: {e}")
+                
+        except Exception as e:
+            logger.error(f"LlamaIndex 텍스트 추출 중 오류 {filename}: {e}")
+            return ""
+    
+    def _fallback_pdf_extraction(self, content: bytes) -> str:
+        """PDF 폴백 텍스트 추출 - LlamaIndex PDFReader 사용"""
+        try:
+            import tempfile
+            import os
+            
+            # 임시 파일로 저장 후 LlamaIndex PDF Reader 사용
+            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
+                temp_file.write(content)
+                temp_file_path = temp_file.name
+            
+            try:
+                pdf_reader = PDFReader()
+                documents = pdf_reader.load_data(temp_file_path)
+                
+                text_parts = []
+                for doc in documents:
+                    if hasattr(doc, 'text') and doc.text:
+                        text_parts.append(doc.text)
+                
+                combined_text = '\n'.join(text_parts)
+                logger.info(f"LlamaIndex PDF 폴백 추출 완료: {len(combined_text)} 문자")
+                
+                return combined_text
+                
+            finally:
+                os.unlink(temp_file_path)
+                
+        except Exception as e:
+            logger.error(f"LlamaIndex PDF 폴백 텍스트 추출 실패: {e}")
+            return ""
 
 # 전역 인덱서 인스턴스
 _document_indexer: Optional[DocumentIndexer] = None
@@ -410,7 +567,22 @@ async def auto_index_documents():
     if os.path.exists(documents_dir):
         logger.info(f"자동 문서 인덱싱 시작 (LlamaIndex): {documents_dir}")
         result = await indexer.index_directory(documents_dir, recursive=True)
-        logger.info(f"자동 인덱싱 결과: {result}")
+        
+        # 결과 상세 로깅
+        if result.get("success", False):
+            indexed = result.get("indexed_files", 0)
+            failed = result.get("failed_files", 0) 
+            total = result.get("total_files", 0)
+                 
+            if indexed > 0:
+                logger.info(f"자동 인덱싱 완료: {indexed}개 새로 인덱싱, {failed}개 실패, 총 {total}개 파일")
+            elif total > 0:
+                logger.info(f"자동 인덱싱 완료: 모든 파일이 이미 인덱싱됨 (총 {total}개)")
+            else:
+                logger.info("자동 인덱싱 완료: 인덱싱할 파일이 없음")
+        else:
+            logger.error(f"자동 인덱싱 실패: {result.get('error', 'Unknown error')}")
+                
         return result
     else:
         logger.warning(f"문서 디렉토리가 존재하지 않음: {documents_dir}")
@@ -420,6 +592,11 @@ async def index_document_file(file_path: str) -> bool:
     """파일 인덱싱 편의 함수"""
     indexer = get_document_indexer()
     return await indexer.index_document(file_path)
+
+async def index_memory_document(doc_id: str, filename: str, content: bytes, metadata: Dict[str, Any] = None) -> bool:
+    """메모리 기반 문서 인덱싱 편의 함수"""
+    indexer = get_document_indexer()
+    return await indexer.index_memory_document(doc_id, filename, content, metadata)
 
 async def index_text(text: str, source_name: str = "api_input") -> bool:
     """텍스트 인덱싱 편의 함수"""
