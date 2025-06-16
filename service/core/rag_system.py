@@ -29,10 +29,10 @@ class RAGConfig:
     """RAG 시스템 설정"""
     embedding_model: str = settings.model.embedding_model  # settings에서 임베딩 모델 가져오기
     llm_model: str = settings.model.exaone_model_path  # settings에서 EXAONE 모델 경로 가져오기
-    max_retrieved_docs: int = 5
-    similarity_threshold: float = 0.3
-    max_context_length: int = 4000
-    max_new_tokens: int = 1000  # LLM 생성 토큰 수
+    max_retrieved_docs: int = 5 # 최대 몇 개의 문서를 가져올지 지정
+    similarity_threshold: float = 0.3 # 검색된 문서 유사도 기준으로 컨텍스트 참조
+    max_context_length: int = 4000 # LLM에 전달하는 컨텍스트의 최종 길이
+    max_new_tokens: int = 1000  # 답변 시 새로 생성할 최대 토큰 개수
     temperature: float = 0.1  # 생성 온도
 
 class RAGResponse(BaseModel):
@@ -433,20 +433,20 @@ class RAGSystem:
             return "관련 정보를 찾았지만 적절한 답변을 추출할 수 없습니다."
     
     def _calculate_confidence(self, documents: List[Dict[str, Any]]) -> float:
-        """신뢰도 점수 계산"""
+        """검색 품질 점수 계산 (신뢰도 대신 단순 품질 점수)"""
         if not documents:
             return 0.0
         
-        # 평균 유사도 점수 기반 신뢰도
+        # 평균 유사도 점수 기반 품질 점수
         scores = [doc.get('score', 0) for doc in documents]
         avg_score = sum(scores) / len(scores)
         
         # 문서 수에 따른 가중치
         doc_count_weight = min(len(documents) / self.config.max_retrieved_docs, 1.0)
         
-        # 최종 신뢰도 (0~1 범위)
-        confidence = avg_score * doc_count_weight
-        return round(confidence, 2)
+        # 최종 품질 점수 (0~1 범위)
+        quality_score = avg_score * doc_count_weight
+        return round(quality_score, 2)
     
     async def _evaluate_and_log_quality(self, user_prompt: str, context: str, answer: str):
         """백그라운드에서 RAG 품질 평가 및 MongoDB 로깅"""

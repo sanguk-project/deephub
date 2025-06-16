@@ -4,12 +4,28 @@ ILJoo Deep Hub - 사용자 서비스 시작
 새로 정리된 폴더 구조에서 RAG 서비스를 시작합니다.
 """
 
+import multiprocessing
+import atexit
+import signal
+
 # 시작 최적화 먼저 적용
 from startup_optimization import optimize_startup
 optimize_startup()
 
 from shared.utils import setup_environment
 from shared.config.settings import settings
+
+def cleanup_resources():
+    """프로세스 종료 시 리소스 정리"""
+    if multiprocessing.current_process().name == 'MainProcess':
+        for process in multiprocessing.active_children():
+            process.terminate()
+            process.join()
+
+# 종료 시 리소스 정리 등록
+atexit.register(cleanup_resources)
+signal.signal(signal.SIGTERM, lambda signum, frame: cleanup_resources())
+signal.signal(signal.SIGINT, lambda signum, frame: cleanup_resources())
 
 async def check_vector_config_and_reindex():
     """VectorDB 설정 변경 확인 및 자동 재적재"""
@@ -56,6 +72,9 @@ async def auto_index_documents():
 
 def main():
     """서비스 시작 (빠른 시작 최적화)"""
+    # 멀티프로세싱 시작 메서드 설정
+    multiprocessing.set_start_method('spawn', force=True)
+    
     # 기본 환경 설정만 수행 (무거운 모델 로딩 제외)
     setup_environment()
     
@@ -116,4 +135,10 @@ def main():
     )
 
 if __name__ == "__main__":
-    main() 
+    try:
+        main()
+    except KeyboardInterrupt:
+        cleanup_resources()
+    except Exception as e:
+        print(f"오류 발생: {e}")
+        cleanup_resources() 

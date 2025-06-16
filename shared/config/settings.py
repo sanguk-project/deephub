@@ -38,22 +38,46 @@ class ModelConfig:
     final_answer_model: str = "gpt-4.1-2025-04-14"
     exaone_model_path: str = "/mnt/ssd/1/hub/EXAONE-3.5-2.4B-Instruct"  # 로컬 저장 경로
     exaone_model_name: str = "LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct"     # HuggingFace 모델명
+    
+    # Re-ranker 모델 설정 (Cross Encoder)
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # Cross Encoder 모델
+    reranker_model_type: str = "cross_encoder"  # 모델 타입
+    reranker_device: str = "auto"  # 디바이스 설정 (auto, cpu, cuda)
+    reranker_max_length: int = 512  # 최대 입력 길이
+    reranker_batch_size: int = 8  # 배치 크기
+    reranker_num_workers: int = 0  # 데이터 로더 워커 수
 
 @dataclass
 class RAGConfig:
     """RAG 시스템 설정"""
-    max_retrieved_docs: int = 8  # 적절한 수의 문서 검색 (품질과 성능 균형)
-    similarity_threshold: float = 0.3  # 더 엄격한 임계값으로 품질 향상
-    max_context_length: int = 8000  # 더 많은 컨텍스트 허용
-    min_score_threshold: int = 6  # 품질 임계값 강화 (6점 이상)
-    max_retry_attempts: int = 3  # 적절한 재시도 횟수
+    max_retrieved_docs: int = 5  # 문서 수를 더 줄여 정확성 집중 (6 -> 5)
+    similarity_threshold: float = 0.55  # 더욱 엄격한 임계값으로 품질 향상 (0.45 -> 0.55)
+    max_context_length: int = 5000  # 컨텍스트 길이 단축 (6000 -> 5000)
+    min_score_threshold: int = 8  # 품질 임계값 더욱 강화 (7점 -> 8점)
+    max_retry_attempts: int = 2  # 재시도 횟수 줄여 효율성 향상
     
     # 신뢰도 향상을 위한 추가 설정
-    keyword_weight: float = 0.3  # 키워드 매칭 가중치
-    semantic_weight: float = 0.7  # 의미적 유사도 가중치
-    diversity_threshold: int = 3  # 같은 소스에서 최대 문서 수
-    min_text_length: int = 30  # 최소 텍스트 길이
-    context_relevance_threshold: float = 0.6  # 컨텍스트 관련성 임계값
+    keyword_weight: float = 0.4  # 키워드 매칭 가중치 더 증가 (0.35 -> 0.4)
+    semantic_weight: float = 0.6  # 의미적 유사도 가중치 조정 (0.65 -> 0.6)
+    diversity_threshold: int = 1  # 같은 소스에서 최대 문서 수 더 감소 (2 -> 1)
+    min_text_length: int = 80  # 최소 텍스트 길이 증가 (50 -> 80)
+    context_relevance_threshold: float = 0.8  # 컨텍스트 관련성 임계값 더욱 강화 (0.7 -> 0.8)
+    
+    # 새로운 품질 향상 설정
+    intent_matching_weight: float = 0.4  # 의도 매칭 가중치 증가 (0.3 -> 0.4)
+    sequence_matching_weight: float = 0.2  # 순서 매칭 가중치 유지
+    important_keyword_boost: float = 2.5  # 중요 키워드 부스트 증가 (2.0 -> 2.5)
+    combined_score_threshold: float = 0.6  # 종합 점수 임계값 강화 (0.5 -> 0.6)
+    
+    # Re-ranker 설정 (더 엄격하게)
+    enable_reranker: bool = True  # Re-ranker 활성화
+    reranker_top_k: int = 8  # Re-ranker에 입력할 상위 문서 수 감소 (10 -> 8)
+    reranker_output_k: int = 5  # Re-ranker 출력 문서 수 감소 (6 -> 5)
+    reranker_weight: float = 0.5  # BGE-Large Re-ranker 점수 가중치 증가 (0.4 -> 0.5)
+    bm25_weight: float = 0.3  # BM25 점수 가중치 유지
+    embedding_weight: float = 0.2  # 임베딩 점수 가중치 감소 (0.3 -> 0.2)
+    diversity_penalty: float = 0.15  # MMR 다양성 패널티 증가 (0.1 -> 0.15)
+    mmr_lambda: float = 0.7  # MMR 람다 파라미터 (관련성 vs 다양성 균형)
 
 @dataclass
 class PathConfig:

@@ -613,7 +613,6 @@
         `;
         qualityScoreDiv.innerHTML = `
           ⭐ GPT-4.1 품질평가: <strong>${data.quality_score.toFixed(1)}/10</strong> | 
-          🎯 신뢰도: <strong>${data.confidence.toFixed(2)}</strong> | 
           📚 출처: <strong>${data.sources.length}</strong>개 문서
         `;
         answerDiv.appendChild(qualityScoreDiv);

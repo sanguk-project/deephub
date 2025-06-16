@@ -2,14 +2,14 @@
   "chunk_size": 512,
   "chunk_overlap": 50,
   "embedding_model": "BAAI/bge-m3",
-  "max_retrieved_docs": 8,
-  "similarity_threshold": 0.3,
-  "max_context_length": 8000,
-  "keyword_weight": 0.3,
-  "semantic_weight": 0.7,
-  "diversity_threshold": 3,
-  "min_text_length": 30,
-  "context_relevance_threshold": 0.6,
+  "max_retrieved_docs": 5,
+  "similarity_threshold": 0.55,
+  "max_context_length": 5000,
+  "keyword_weight": 0.4,
+  "semantic_weight": 0.6,
+  "diversity_threshold": 1,
+  "min_text_length": 80,
+  "context_relevance_threshold": 0.8,
   "supported_formats": [
     ".pdf",
     ".txt",
@@ -20,5 +20,5 @@
     ".rtf"
   ],
   "config_version": "1.0",
-  "last_updated": "2025-06-12T04:09:02.716891"
+  "last_updated": "2025-06-13T00:34:26.354926"
 }
