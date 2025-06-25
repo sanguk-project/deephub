@@ -6,7 +6,6 @@ ILJoo Deep Hub 시스템 설정
 import os
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional
 
 # 프로젝트 루트 경로
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -20,12 +19,20 @@ class DatabaseConfig:
 class APIConfig:
     """API 키 설정
     
-    ⚠️ 중요: OPENAI_API_KEY 환경변수를 설정해야 합니다.
+    ⚠️ 보안 중요사항:
+    - API 키는 절대 코드에 직접 작성하지 마세요
+    - 반드시 환경변수로만 설정하세요
+    - .env 파일 사용 시 .gitignore에 포함하세요
     
     설정 방법:
-    1. 터미널에서: export OPENAI_API_KEY="your-api-key-here"
-    2. ~/.bashrc에 추가: echo 'export OPENAI_API_KEY="your-api-key-here"' >> ~/.bashrc
-    3. 또는 아래 openai_api_key 값을 직접 수정 (보안상 권장하지 않음)
+    1. .env 파일 생성: cp .env.example .env
+    2. .env 파일에서 실제 API 키 설정
+    3. 또는 터미널에서: export OPENAI_API_KEY="your-actual-api-key"
+    4. ~/.bashrc 영구 설정: echo 'export OPENAI_API_KEY="your-key"' >> ~/.bashrc
+    
+    API 키 발급:
+    - OpenAI: https://platform.openai.com/api-keys
+    - Google: https://console.cloud.google.com/apis/credentials
     """
     google_api_key: str = os.getenv("GOOGLE_API_KEY", "")
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")

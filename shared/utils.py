@@ -6,7 +6,7 @@ ILJoo Deep Hub - 공용 유틸리티
 import os
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 import openai
 from openai import AsyncOpenAI
 
@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 class ClientManager:
     """OpenAI 클라이언트 관리자 - 싱글톤 패턴"""
     
-    _sync_client: Optional[openai.OpenAI] = None
-    _async_client: Optional[AsyncOpenAI] = None
+    _sync_client: openai.OpenAI = None
+    _async_client: AsyncOpenAI = None
     
     @classmethod
     def get_sync_client(cls) -> openai.OpenAI:

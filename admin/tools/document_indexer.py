@@ -8,7 +8,7 @@ import hashlib
 import logging
 import asyncio
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -50,7 +50,7 @@ class DocumentInfo:
     last_modified: datetime
     format: str
     chunks_count: int = 0
-    indexed_at: Optional[datetime] = None
+    indexed_at: datetime = None
 
 class DocumentIndexer:
     """문서 인덱서 클래스 - LlamaIndex 기반"""

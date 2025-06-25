@@ -5,7 +5,7 @@ GPT-4.1 검증 + GPT-4.1 최종 답변 생성
 """
 import logging
 import json
-from typing import List, Dict, Any, Optional, TypedDict, Literal
+from typing import List, Dict, Any, TypedDict, Literal
 from dataclasses import dataclass
 
 from langgraph.graph import StateGraph, END
@@ -43,7 +43,7 @@ class RAGState(TypedDict):
     confidence_score: float
     sources: List[str]
     reasoning: str
-    error: Optional[str]
+    error: str
     next_action: Literal["retry_search", "generate_final_answer", "end"]  # 다음 액션
 
 class LangGraphRAGSystem:

@@ -6,7 +6,6 @@ VectorDB 관리, 문서 인덱싱, 설정 확인 등의 관리 기능을 제공
 
 import asyncio
 import argparse
-import sys
 from typing import Dict, Any
 
 from startup_optimization import optimize_startup

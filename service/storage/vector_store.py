@@ -7,7 +7,7 @@ import os
 import pickle
 import logging
 import numpy as np
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
 from dataclasses import dataclass
 
 # FAISS 로깅 완전 억제 (GPU 경고 메시지 제거)
@@ -74,7 +74,7 @@ class FAISSVectorStore:
     
     def __init__(self, config: FAISSConfig = None):
         self.config = config or FAISSConfig()
-        self.index: Optional[faiss.Index] = None
+        self.index: faiss.Index = None
         self.metadata_store: Dict[int, Dict[str, Any]] = {}
         self.id_to_index: Dict[str, int] = {}
         self.index_to_id: Dict[int, str] = {}

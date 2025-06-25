@@ -17,7 +17,6 @@ from langchain_core.output_parsers import StrOutputParser
 from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
 import torch
 from service.storage.vector_store import search_similar_documents
-from admin.tools.document_indexer import get_document_indexer
 from service.storage.rag_logger import evaluate_and_log_rag, quick_rag_score, RAGEvaluationResult
 from shared.config.settings import settings
 from pydantic import BaseModel
@@ -178,19 +177,19 @@ class RAGSystem:
             # 프롬프트 템플릿 정의
             prompt_template = """당신은 회사 문서 기반 AI 어시스턴트입니다. 주어진 문서 내용을 바탕으로 사용자의 질문에 대해 정확하고 정리된 답변을 제공하세요.
 
-답변 작성 가이드라인:
-1. 핵심 정보를 명확하게 정리하여 답변
-2. 구체적인 내용 (시간, 장소, 연락처, 절차 등)을 빠뜨리지 말고 포함
-3. 불필요한 반복이나 중복 내용은 제거
-4. 사용자가 이해하기 쉽도록 구조화하여 제시
-5. 문서에 없는 내용은 추측하지 말 것
+            답변 작성 가이드라인:
+            1. 핵심 정보를 명확하게 정리하여 답변
+            2. 구체적인 내용 (시간, 장소, 연락처, 절차 등)을 빠뜨리지 말고 포함
+            3. 불필요한 반복이나 중복 내용은 제거
+            4. 사용자가 이해하기 쉽도록 구조화하여 제시
+            5. 문서에 없는 내용은 추측하지 말 것
 
-질문: {question}
+            질문: {question}
 
-관련 문서 내용:
-{context}
+            관련 문서 내용:
+            {context}
 
-답변:"""
+            답변:"""
 
             self.prompt = PromptTemplate(
                 input_variables=["question", "context"],

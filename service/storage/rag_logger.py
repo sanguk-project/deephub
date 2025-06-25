@@ -7,7 +7,7 @@ import os
 import logging
 import asyncio
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from dataclasses import dataclass
 from pydantic import BaseModel
 

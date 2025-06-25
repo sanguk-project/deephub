@@ -6,12 +6,11 @@ deephub 복합 RAG 시스템
 import logging
 import asyncio
 import re
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from dataclasses import dataclass
 from datetime import datetime
 import json
 import os
-import time
 import gc
 import atexit
 import multiprocessing
@@ -20,15 +19,10 @@ import traceback
 import torch
 import numpy as np
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from langchain_huggingface import HuggingFacePipeline
 from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
-from sentence_transformers import CrossEncoder
-from rank_bm25 import BM25Okapi
 
 # deephub 내부 컴포넌트 import
 from service.storage.vector_store import search_similar_documents
-# MongoDB 로깅 제거됨
-from shared.utils import get_openai_client
 from shared.config.settings import settings
 
 # 멀티프로세싱 오류 방지 환경 변수 설정
@@ -74,8 +68,6 @@ try:
 except ImportError:
     logging.warning("rank-bm25 not installed, BM25 re-ranking will not work")
     BM25Okapi = None
-
-from shared.config.settings import settings
 
 @dataclass
 class CompositeRAGConfig:
@@ -136,10 +128,6 @@ class DeephubCompositeRAG:
     def __init__(self):
         """Composite RAG 시스템 초기화"""
         self.config = CompositeRAGConfig()
-        
-        # EXAONE 설정
-        self.exaone_url = "http://localhost:8000/generate"
-        self.gpt4_url = "https://api.openai.com/v1/chat/completions"
         
         # 임베딩 모델 초기화 (settings.py의 설정 준수)
         self.embedding_model_name = self.config.embedding_model_name  # BAAI/bge-m3
@@ -744,11 +732,10 @@ class DeephubCompositeRAG:
                 return f"'{query}' 질문과 관련된 정보를 찾을 수 없습니다. 다른 질문으로 시도해보시거나 더 구체적으로 질문해주세요."
             
             # 전체 컨텍스트 요약 정보 추가
-            avg_score = total_score / len(relevant_docs) if relevant_docs else 0
             context_summary = f"""
             📊 컨텍스트 요약:
             - 총 참고문서 수: {len(relevant_docs)}개
-            - 평균 관련성 점수: {avg_score:.3f}
+            - 평균 관련성 점수: {total_score / len(relevant_docs):.3f}
 
             """
             
@@ -770,8 +757,7 @@ class DeephubCompositeRAG:
             ⚠️ 중요: 질문에서 요구하지 않은 추가 정보는 포함하지 마세요!
             """
 
-            # 질문 분석 및 문맥 파악
-            question_analysis = self._analyze_question_intent(query)
+
             
             # 제외 주제 안내 추가
             exclude_guidance = ""
@@ -1035,7 +1021,7 @@ class DeephubCompositeRAG:
             
         except Exception as e:
             logger.error(f"복합 RAG 처리 실패: {e}")
-            return f"죄송합니다. 요청을 처리하는 중 오류가 발생했습니다: {str(e)}"
+            return {"error": f"죄송합니다. 요청을 처리하는 중 오류가 발생했습니다: {str(e)}"}
     
     def _is_content_relevant_to_question(self, query: str, content: str, question_analysis: Dict[str, Any]) -> bool:
         """컨텍스트 내용이 질문과 관련되는지 확인 (강화된 버전)"""
@@ -1155,7 +1141,23 @@ async def composite_ask_with_context(question: str) -> Dict[str, Any]:
 async def get_composite_rag_status() -> Dict[str, Any]:
     """복합 RAG 시스템 상태 확인"""
     system = await get_composite_rag_system()
-    return system.get_system_status()
+    
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "composite_rag_initialized": True,
+        "models_loaded": {
+            "embedding_model": system.embedding_model is not None,
+            "exaone_model": system.exaone_model is not None or system.exaone_pipeline is not None,
+            "openai_client": system.openai_client is not None,
+            "reranker": system.reranker is not None
+        },
+        "config": {
+            "embedding_model": system.config.embedding_model_name,
+            "exaone_model": system.config.exaone_model_name,
+            "gpt_model": system.config.gpt_model_name,
+            "enable_reranker": system.config.enable_reranker
+        }
+    }
 
 class DocumentReranker:
     """문서 재순위 매기기 클래스 (BGE-Large + BM25 + 임베딩 하이브리드)"""
@@ -1528,10 +1530,6 @@ class DocumentReranker:
         try:
             if not documents:
                 return {"error": "문서가 없습니다"}
-            
-            # 원본 순서 (임베딩 점수 기준)
-            original_order = [(i, doc.get('score', 0)) for i, doc in enumerate(documents)]
-            original_order.sort(key=lambda x: x[1], reverse=True)
             
             # Re-ranker 적용
             reranked_docs = asyncio.run(self.rerank_documents(query, documents.copy()))

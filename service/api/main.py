@@ -443,7 +443,6 @@ async def get_composite_system_status():
 async def get_reranker_status():
     """Re-ranker 시스템 상태 조회 (settings.py 설정 정보 포함)"""
     try:
-        from service.core.composite_rag_system import get_composite_rag_system
         from shared.config.settings import settings
         
         # 복합 RAG 시스템 인스턴스 가져오기

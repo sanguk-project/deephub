@@ -1,4 +1,4 @@
-# 🚀 **ILJoo Deep Hub RAG System v2.1**
+# 🚀 **Deep Hub RAG System v2.1**
 
 **LlamaIndex + FAISS + EXAONE 3.5 + GPT-4.1** 기반의 차세대 RAG(Retrieval-Augmented Generation) 시스템입니다.
 
@@ -82,7 +82,7 @@ ai_agent/deephub/
 │       └── faiss_index/                # IVF 벡터 인덱스
 │
 ├── 🏠 sllm/web/                       # 메인 웹 인터페이스
-│   ├── app.py                          # Flask 메인 서버
+│   ├── app.py                          # FastAPI 메인 서버
 │   ├── template/index.html             # 사용자 친화적 UI
 │   └── static/                         # 마크다운/하이라이트 리소스
 │
@@ -116,21 +116,28 @@ graph TD
 ### 1. 환경 설정
 
 ```bash
-# 필수 환경변수 설정
+# 필수 환경변수 설정 (본인의 OpenAI API 키로 변경하세요)
 export OPENAI_API_KEY="your-openai-api-key-here"
 
 # EXAONE 모델 자동 다운로드 경로 (기본값)
 # /mnt/ssd/1/hub/EXAONE-3.5-2.4B-Instruct
 ```
 
+**⚠️ 보안 주의사항:**
+- 실제 API 키는 절대 코드에 직접 작성하지 마세요
+- API 키는 환경변수로만 설정하세요
+- `.env` 파일 사용 시 반드시 `.gitignore`에 추가하세요
+- API 키가 GitHub에 노출되면 즉시 재발급하세요
+
 ### 2. 서비스 시작 (3-5초 빠른 시작!)
 
 ```bash
-cd /mnt/ssd/1/sanguk/ai_agent/deephub
+# 프로젝트 디렉토리로 이동
+cd /path/to/your/deephub
 python run.py
 
-# 또는 웹 인터페이스만 사용
-cd /mnt/ssd/1/sanguk/ai_agent/sllm/web
+# 또는 웹 인터페이스만 사용하는 경우  
+cd /path/to/your/sllm/web
 python app.py
 ```
 
@@ -184,69 +191,6 @@ curl -X POST "http://localhost:8080/ask-composite" \
 curl -X GET "http://localhost:9999/api/documents"      # 문서 목록
 curl -X DELETE "http://localhost:9999/api/documents/1" # 문서 삭제
 curl -X DELETE "http://localhost:9999/api/clear"       # 전체 삭제
-```
-
-## ⚙️ **설정 관리**
-
-### 주요 설정 (`shared/config/settings.py`)
-
-```python
-@dataclass
-class ModelConfig:
-    """모델 설정"""
-    embedding_model: str = "BAAI/bge-m3"
-    verification_model: str = "gpt-4.1-2025-04-14"
-    final_answer_model: str = "gpt-4.1-2025-04-14"
-    exaone_model_path: str = "/mnt/ssd/1/hub/EXAONE-3.5-2.4B-Instruct"  # 로컬 저장 경로
-    exaone_model_name: str = "LGAI-EXAONE/EXAONE-3.5-2.4B-Instruct"     # HuggingFace 모델명
-
-@dataclass
-class RAGConfig:
-    """RAG 설정"""
-    similarity_top_k: int = 5
-    chunk_size: int = 512
-    chunk_overlap: int = 50
-    max_new_tokens: int = 1024      # EXAONE 모델 생성 길이
-    temperature: float = 0.1        # 생성 온도
-    llm_model: str = "exaone"       # LLM 모델 타입
-```
-
-### 로컬 모델 관리
-
-```python
-# 자동 모델 다운로드 및 저장
-def _download_and_save_model(local_path, model_name):
-    """EXAONE 모델을 HuggingFace에서 다운로드하여 로컬에 저장"""
-    
-def _check_model_exists(local_path):
-    """로컬 모델 파일 무결성 확인"""
-    
-# 첫 실행 시:
-# 1. 로컬 모델 존재 확인
-# 2. 없으면 HuggingFace에서 다운로드
-# 3. 로컬에 저장 후 다음부터 로컬 사용
-```
-
-### 휘발성 메모리 저장소
-
-```python
-class InMemoryDocumentStore:
-    """메모리 기반 문서 저장소"""
-    
-    def store_document(self, doc_id, content, metadata):
-        """문서를 메모리에 저장"""
-        
-    def get_document(self, doc_id):
-        """문서 조회"""
-        
-    def remove_document(self, doc_id):
-        """문서 삭제"""
-        
-    def clear_all(self):
-        """모든 문서 삭제"""
-        
-    def get_stats(self):
-        """저장소 통계 정보"""
 ```
 
 ## 📊 **성능 개선 사항**
@@ -309,84 +253,6 @@ class InMemoryDocumentStore:
 | `/status-composite` | GET | 복합 RAG 상태 |
 | `/system/model-info` | GET | 로컬 모델 정보 |
 | `/system/memory-stats` | GET | 메모리 저장소 상태 |
-
-### 응답 형식
-
-#### 마크다운 질의응답
-```json
-{
-  "answer": "**마크다운 형식** 답변",
-  "sources": ["document1.pdf", "document2.txt"],
-  "confidence_score": 0.85,
-  "processing_time": 2.3,
-  "model_info": {
-    "llm_model": "exaone",
-    "source": "local",
-    "path": "/mnt/ssd/1/hub/EXAONE-3.5-2.4B-Instruct"
-  }
-}
-```
-
-#### 복합 RAG 파이프라인
-```json
-{
-  "final_answer": "검증된 최종 답변",
-  "confidence_score": 0.85,
-  "sources": ["document1.pdf", "document2.txt"],
-  "approved": true,
-  "review_summary": "GPT-4.1 검수 요약",
-  "processing_time": 2.3,
-  "pipeline_metadata": {
-    "retrieval_quality": 0.9,
-    "keyword_consistency": 0.8,
-    "source_diversity": 0.7,
-    "answer_completeness": 0.85
-  }
-}
-```
-
-## 🛠️ **트러블슈팅**
-
-### 일반적인 문제
-
-1. **OpenAI API 키 오류**
-   ```bash
-   export OPENAI_API_KEY="your-key-here"
-   source ~/.bashrc
-   ```
-
-2. **EXAONE 모델 다운로드 오류**
-   ```bash
-   # 로그 확인
-   tail -f server.log
-   
-   # 수동 다운로드 디렉토리 생성
-   mkdir -p /mnt/ssd/1/hub
-   chmod 755 /mnt/ssd/1/hub
-   ```
-
-3. **메모리 부족**
-   ```bash
-   # 모델 8bit 양자화 (settings.py)
-   load_in_8bit = True
-   
-   # 더 적은 문서 검색
-   similarity_top_k = 3
-   ```
-
-4. **문서 업로드 실패**
-   - 지원 형식 확인: PDF, DOCX, TXT, MD
-   - 파일 크기 제한: 50MB 이하 권장
-   - 브라우저 새로고침 후 재시도
-
-5. **마크다운 렌더링 오류**
-   ```bash
-   # CDN 연결 확인
-   ping cdnjs.cloudflare.com
-   
-   # 로컬 리소스 확인
-   ls ai_agent/sllm/web/static/
-   ```
 
 ### 성능 최적화
 
@@ -611,27 +477,6 @@ INFO - Re-ranker 비활성화 상태 - 기존 순서 유지
 - **부정 키워드 제거**: 관련 없는 정보 자동 배제
 - **컨텍스트 최적화**: 관련성 높은 문서만 선별하여 답변 품질 향상
 
-## 📋 기능 소개
-
-### 🚀 핵심 기능
-
-## 📄 **라이선스**
-
-MIT License - 자유롭게 사용, 수정, 배포 가능합니다.
-
-## 👥 **기여하기**
-
-1. Fork 프로젝트
-2. Feature 브랜치 생성 (`git checkout -b feature/amazing-feature`)
-3. 변경 사항 커밋 (`git commit -m 'Add amazing feature'`)
-4. Push to 브랜치 (`git push origin feature/amazing-feature`)
-5. Pull Request 제출
-
-### 기여 가이드라인
-- 코드 스타일: PEP 8 준수
-- 테스트: 새 기능에 대한 단위 테스트 작성
-- 문서: README 및 API 문서 업데이트
-- 이슈: 버그 리포트 시 재현 가능한 예제 포함
 
 ---
 
